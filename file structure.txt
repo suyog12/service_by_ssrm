@@ -1,0 +1,34 @@
+mkdir backend\app\api\v1\endpoints
+mkdir backend\app\core
+mkdir backend\app\schemas
+mkdir backend\app\services
+mkdir backend\app\utils
+
+New-Item backend\app\__init__.py
+New-Item backend\app\main.py
+New-Item backend\app\api\__init__.py
+New-Item backend\app\api\v1\__init__.py
+New-Item backend\app\api\v1\endpoints\__init__.py
+New-Item backend\app\api\v1\endpoints\auth.py
+New-Item backend\app\api\v1\endpoints\users.py
+New-Item backend\app\core\__init__.py
+New-Item backend\app\core\config.py
+New-Item backend\app\core\security.py
+New-Item backend\app\core\dependencies.py
+New-Item backend\app\core\database.py
+New-Item backend\app\schemas\__init__.py
+New-Item backend\app\schemas\auth.py
+New-Item backend\app\schemas\user.py
+New-Item backend\app\services\__init__.py
+New-Item backend\app\services\auth_service.py
+New-Item backend\app\services\user_service.py
+New-Item backend\app\utils\__init__.py
+New-Item backend\app\utils\password.py
+New-Item backend\.env
+New-Item backend\.env.example
+New-Item backend\.gitignore
+New-Item backend\requirements.txt
+
+New-Item backend\app\api\v1\endpoints\tenants.py
+New-Item backend\app\services\tenant_service.py
+New-Item backend\app\schemas\tenant.py
