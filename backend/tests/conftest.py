@@ -39,34 +39,31 @@ async def client():
 
 # One-time DB cleanup before session 
 @pytest.fixture(autouse=True, scope="session")
-def clean_db_once():
-    import asyncio
+async def clean_db_once():
     import asyncpg as apg
 
-    async def _clean():
-        conn = await apg.connect(
-            host=settings.DB_HOST,
-            port=settings.DB_PORT,
-            user=settings.DB_USER,
-            password=settings.DB_PASSWORD,
-            database=settings.DB_NAME,
+    conn = await apg.connect(
+        host=settings.DB_HOST,
+        port=settings.DB_PORT,
+        user=settings.DB_USER,
+        password=settings.DB_PASSWORD,
+        database=settings.DB_NAME,
+    )
+    try:
+        rows = await conn.fetch(
+            "SELECT schema_name FROM information_schema.schemata "
+            "WHERE schema_name LIKE 'tenant_%'"
         )
-        try:
-            rows = await conn.fetch(
-                "SELECT schema_name FROM information_schema.schemata "
-                "WHERE schema_name LIKE 'tenant_%'"
+        for row in rows:
+            await conn.execute(
+                f'DROP SCHEMA IF EXISTS "{row["schema_name"]}" CASCADE'
             )
-            for row in rows:
-                await conn.execute(
-                    f'DROP SCHEMA IF EXISTS "{row["schema_name"]}" CASCADE'
-                )
-            await conn.execute("DELETE FROM core.refresh_tokens")
-            await conn.execute("DELETE FROM core.users")
-            await conn.execute("DELETE FROM core.tenants")
-        finally:
-            await conn.close()
+        await conn.execute("DELETE FROM core.refresh_tokens")
+        await conn.execute("DELETE FROM core.users")
+        await conn.execute("DELETE FROM core.tenants")
+    finally:
+        await conn.close()
 
-    asyncio.run(_clean())
     yield
 
 
