@@ -6,15 +6,15 @@ from app.core.config import settings
 from app.core.database import get_pool, close_pool
 from app.api.v1.endpoints.auth import router as auth_router
 from app.api.v1.endpoints.users import router as users_router
+from app.api.v1.endpoints.roles import router as roles_router
+from app.api.v1.endpoints.tenants import router as tenants_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup — initialize DB pool
     await get_pool()
     print("Database pool initialized")
     yield
-    # Shutdown — close DB pool
     await close_pool()
     print("Database pool closed")
 
@@ -28,15 +28,16 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],        # tighten this in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Routes
-app.include_router(auth_router, prefix="/api/v1")
-app.include_router(users_router, prefix="/api/v1")
+app.include_router(auth_router,    prefix="/api/v1")
+app.include_router(users_router,   prefix="/api/v1")
+app.include_router(roles_router,   prefix="/api/v1")
+app.include_router(tenants_router, prefix="/api/v1")
 
 
 @app.get("/")

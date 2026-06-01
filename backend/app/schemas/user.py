@@ -3,14 +3,13 @@ from typing import Optional
 from uuid import UUID
 
 
-# Create User (admin creates staff)
+# Create Staff Account 
 
 class CreateUserRequest(BaseModel):
     full_name: str
     email: EmailStr
     phone: Optional[str] = None
-    password: str
-    role_template_id: Optional[UUID] = None  # assign role on creation
+    role_template_id: Optional[UUID] = None
 
 
 class CreateUserResponse(BaseModel):
@@ -20,7 +19,7 @@ class CreateUserResponse(BaseModel):
     email: str
 
 
-# User Profile
+# User Profile 
 
 class UserProfileResponse(BaseModel):
     user_id: UUID
@@ -34,7 +33,7 @@ class UserProfileResponse(BaseModel):
     role_template_name: Optional[str]
 
 
-# Assign Role
+# Assign Role 
 
 class AssignRoleRequest(BaseModel):
     user_id: UUID
@@ -45,7 +44,7 @@ class AssignRoleResponse(BaseModel):
     message: str
 
 
-# Update User
+# Update User 
 
 class UpdateUserRequest(BaseModel):
     full_name: Optional[str] = None
@@ -55,7 +54,7 @@ class UpdateUserRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
-# Permission Override
+# Permission Override 
 
 class PermissionOverrideRequest(BaseModel):
     user_id: UUID

@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
 import asyncpg
+from typing import List
+from app.core.dependencies import get_current_user, get_current_user_strict, get_current_admin, require_permission
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin, require_permission
@@ -49,7 +51,7 @@ async def create_staff(
 
 @router.get("/me", response_model=UserProfileResponse)
 async def get_my_profile(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user_strict),
     db: asyncpg.Connection = Depends(get_db)
 ):
     try:
@@ -60,7 +62,6 @@ async def get_my_profile(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
 
 @router.get("/{user_id}", response_model=UserProfileResponse)
 async def get_profile(
@@ -102,13 +103,15 @@ async def override_permission(
     current_user: dict = Depends(require_permission("config.roles", "edit")),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    return await set_permission_override(
-        data,
-        current_user["schema_name"],
-        current_user["user_id"],
-        db
-    )
-
+    try:
+        return await set_permission_override(
+            data,
+            current_user["schema_name"],
+            current_user["user_id"],
+            db
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{user_id}/permissions")
 async def user_permissions(
@@ -117,3 +120,66 @@ async def user_permissions(
     db: asyncpg.Connection = Depends(get_db)
 ):
     return await get_user_permissions(user_id, current_user["schema_name"], db)
+
+@router.get("", response_model=List[UserProfileResponse])
+async def list_staff(
+    current_user: dict = Depends(require_permission("hr.view_staff", "view")),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """List all staff for this tenant"""
+    rows = await db.fetch(
+        f"""
+        SELECT
+            u.id, u.full_name, u.email, u.phone, u.is_admin,
+            up.designation, up.department,
+            up.role_template_id,
+            rt.name as role_template_name
+        FROM core.users u
+        LEFT JOIN "{current_user['schema_name']}".user_profiles up ON up.id = u.id
+        LEFT JOIN "{current_user['schema_name']}".role_templates rt ON rt.id = up.role_template_id
+        WHERE u.tenant_id = $1
+        ORDER BY u.full_name
+        """,
+        current_user["tenant_id"]
+    )
+    return [
+        UserProfileResponse(
+            user_id=row["id"],
+            full_name=row["full_name"],
+            email=row["email"],
+            phone=row["phone"],
+            is_admin=row["is_admin"],
+            designation=row["designation"],
+            department=row["department"],
+            role_template_id=row["role_template_id"],
+            role_template_name=row["role_template_name"]
+        ) for row in rows
+    ]
+
+
+@router.patch("/{user_id}/deactivate")
+async def deactivate_user(
+    user_id: UUID,
+    current_user: dict = Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    if user_id == current_user["user_id"]:
+        raise HTTPException(status_code=400, detail="You cannot deactivate yourself")
+    await db.execute(
+        "UPDATE core.users SET is_active = FALSE, updated_at = NOW() WHERE id = $1",
+        user_id
+    )
+    return {"message": "User deactivated successfully"}
+
+
+@router.patch("/{user_id}/reactivate")
+async def reactivate_user(
+    user_id: UUID,
+    current_user: dict = Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await db.execute(
+        "UPDATE core.users SET is_active = TRUE, updated_at = NOW() WHERE id = $1",
+        user_id
+    )
+    return {"message": "User reactivated successfully"}

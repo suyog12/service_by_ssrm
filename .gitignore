@@ -1,4 +1,8 @@
+# Secrets
 .env
+backend/.env
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -8,5 +12,15 @@ venv/
 *.egg-info/
 dist/
 build/
-DB Queries
+
+# Local only
+DB Queries/
 file structure.txt
+
+# Test output — keep reports local, not in git
+backend/test_results_*.xlsx
+
+# OS
+.DS_Store
+Thumbs.db
+*.log

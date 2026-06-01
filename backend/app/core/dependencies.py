@@ -107,3 +107,45 @@ def require_permission(feature_code: str, level: str = "view"):
         return current_user
 
     return checker
+
+async def get_current_user_strict(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: asyncpg.Connection = Depends(get_db)
+) -> dict:
+    """
+    Same as get_current_user but blocks access if must_change_password is True.
+    Use this on all routes except /auth/change-password and /auth/me
+    """
+    token = credentials.credentials
+    payload = decode_token(token)
+
+    if not payload or payload.get("type") != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token"
+        )
+
+    user = await db.fetchrow(
+        "SELECT id, is_active, must_change_password FROM core.users WHERE id = $1",
+        UUID(payload["user_id"])
+    )
+
+    if not user or not user["is_active"]:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or deactivated"
+        )
+
+    if user["must_change_password"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You must change your password before continuing"
+        )
+
+    return {
+        "user_id": UUID(payload["user_id"]),
+        "tenant_id": UUID(payload["tenant_id"]),
+        "schema_name": payload["schema_name"],
+        "is_admin": payload["is_admin"],
+        "is_super_admin": payload["is_super_admin"],
+    }

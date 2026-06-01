@@ -134,6 +134,14 @@ async def set_permission_override(
     granted_by: UUID,
     db: asyncpg.Connection
 ) -> PermissionOverrideResponse:
+    # Validate feature_code exists
+    valid = await db.fetchrow(
+        "SELECT id FROM core.features WHERE code = $1",
+        data.feature_code
+    )
+    if not valid:
+        raise ValueError(f"Feature code '{data.feature_code}' does not exist")
+
     await db.execute(
         f"""
         INSERT INTO "{schema_name}".user_permission_overrides

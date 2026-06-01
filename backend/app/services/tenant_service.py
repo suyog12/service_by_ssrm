@@ -19,7 +19,19 @@ def schema_name_from_slug(slug: str) -> str:
 
 
 async def register_tenant(data: TenantRegisterRequest, db: asyncpg.Connection) -> RegisterResponse:
-    # 1. Generate slug and schema name
+    # Validate business_name is not empty or whitespace
+    if not data.business_name or not data.business_name.strip():
+        raise ValueError("Business name cannot be empty")
+
+    # Validate business_name length
+    if len(data.business_name) > 255:
+        raise ValueError("Business name is too long (maximum 255 characters)")
+
+    # Validate business_type explicitly
+    if data.business_type not in ("restaurant", "hotel", "both"):
+        raise ValueError("Business type must be restaurant, hotel, or both")
+
+    # rest of existing code...
     slug = slugify(data.business_name)
     schema_name = schema_name_from_slug(slug)
 
