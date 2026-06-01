@@ -16,3 +16,4 @@ pytest-asyncio
 httpx
 anyio[trio]
 datetime
+openpyxl
