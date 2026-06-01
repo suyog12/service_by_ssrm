@@ -7,7 +7,10 @@ on:
     branches: [ main, develop ]
   workflow_dispatch:
   schedule:
-    - cron: '30 2 * * *'  # Run daily at 2:30 AM UTC
+    - cron: '30 2 * * *'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   test:
@@ -51,9 +54,7 @@ jobs:
       - name: Run tests and generate Excel report
         working-directory: backend
         run: |
-          pytest tests/ -v \
-            --tb=short \
-            --junitxml=test-results.xml
+          pytest tests/ -v --tb=short --junitxml=test-results.xml
 
       - name: Find Excel report
         id: find_excel
@@ -61,8 +62,13 @@ jobs:
         if: always()
         run: |
           EXCEL=$(ls test_results_*.xlsx 2>/dev/null | tail -1)
-          echo "excel_file=$EXCEL" >> $GITHUB_OUTPUT
-          echo "Found: $EXCEL"
+          if [ -z "$EXCEL" ]; then
+            echo "No Excel file found"
+            echo "excel_file=" >> $GITHUB_OUTPUT
+          else
+            echo "excel_file=$EXCEL" >> $GITHUB_OUTPUT
+            echo "Found: $EXCEL"
+          fi
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4
@@ -75,7 +81,7 @@ jobs:
           retention-days: 90
 
       - name: Send email with results
-        if: always()
+        if: always() && steps.find_excel.outputs.excel_file != ''
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -86,7 +92,7 @@ jobs:
           to: mainalisuyog0@gmail.com
           from: "Service by SSRM CI <${{ secrets.SMTP_USER }}>"
           body: |
-            Test run completed.
+            Test run completed for Service by SSRM.
 
             Branch:     ${{ github.ref_name }}
             Commit:     ${{ github.sha }}
@@ -94,9 +100,9 @@ jobs:
             Status:     ${{ job.status }}
             Triggered:  ${{ github.event_name }}
 
-            Excel report is attached.
+            The full Excel report is attached.
 
-            View: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            View run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           attachments: backend/${{ steps.find_excel.outputs.excel_file }}
 
       - name: Write job summary
@@ -109,4 +115,4 @@ jobs:
           echo "| Status | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Excel report and JUnit XML are in the run artifacts." >> $GITHUB_STEP_SUMMARY
+          echo "Excel report and JUnit XML available in run artifacts." >> $GITHUB_STEP_SUMMARY
