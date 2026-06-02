@@ -101,35 +101,59 @@ def auth(token: str) -> dict:
 
 # Fixtures 
 @pytest.fixture
-async def registered_tenant(client):
+async def registered_tenant(client, db):
     resp = await client.post("/api/v1/auth/register", json=TEST_BUSINESS)
     if resp.status_code == 400 and "already exists" in resp.json().get("detail", ""):
+        # Always reset password to known value via DB to handle test pollution
+        from app.utils.password import hash_password
+        await db.execute(
+            """
+            UPDATE core.users SET password_hash = $1, must_change_password = FALSE
+            WHERE email = $2
+            """,
+            hash_password(TEST_BUSINESS["admin_password"]),
+            TEST_BUSINESS["admin_email"]
+        )
         login = await client.post("/api/v1/auth/login", json={
             "email": TEST_BUSINESS["admin_email"],
             "password": TEST_BUSINESS["admin_password"],
             "tenant_slug": "test-hotel-nepal"
         })
+        assert login.status_code == 200, f"Login failed after password reset: {login.text}"
         d = login.json()
-        return {"schema_name": d["schema_name"],
-                "tenant_id": d["user_id"],
-                "admin_user_id": d["user_id"]}
+        return {
+            "schema_name": d["schema_name"],
+            "tenant_id": d["user_id"],
+            "admin_user_id": d["user_id"]
+        }
     assert resp.status_code == 201, resp.text
     return resp.json()
 
-
 @pytest.fixture
-async def registered_tenant_b(client):
+async def registered_tenant_b(client, db):
     resp = await client.post("/api/v1/auth/register", json=TEST_BUSINESS_B)
     if resp.status_code == 400 and "already exists" in resp.json().get("detail", ""):
+        from app.utils.password import hash_password
+        await db.execute(
+            """
+            UPDATE core.users SET password_hash = $1, must_change_password = FALSE
+            WHERE email = $2
+            """,
+            hash_password(TEST_BUSINESS_B["admin_password"]),
+            TEST_BUSINESS_B["admin_email"]
+        )
         login = await client.post("/api/v1/auth/login", json={
             "email": TEST_BUSINESS_B["admin_email"],
             "password": TEST_BUSINESS_B["admin_password"],
             "tenant_slug": "second-restaurant-nepal"
         })
+        assert login.status_code == 200, f"Login failed after password reset: {login.text}"
         d = login.json()
-        return {"schema_name": d["schema_name"],
-                "tenant_id": d["user_id"],
-                "admin_user_id": d["user_id"]}
+        return {
+            "schema_name": d["schema_name"],
+            "tenant_id": d["user_id"],
+            "admin_user_id": d["user_id"]
+        }
     assert resp.status_code == 201, resp.text
     return resp.json()
 
