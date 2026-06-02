@@ -7,13 +7,17 @@ from app.schemas.auth import (
     TenantRegisterRequest, RegisterResponse,
     LoginRequest, LoginResponse,
     RefreshRequest, RefreshResponse,
-    ChangePasswordRequest, ChangePasswordResponse
+    ChangePasswordRequest, ChangePasswordResponse,
+    ForgotPasswordRequest, ForgotPasswordResponse,
+    ResetPasswordRequest, ResetPasswordResponse,
 )
 from app.services.auth_service import (
     login_user,
     refresh_access_token,
     logout_user,
-    change_password
+    change_password,
+    forgot_password,
+    reset_password,
 )
 from app.services.tenant_service import register_tenant
 
@@ -72,6 +76,25 @@ async def change_pwd(
 ):
     try:
         return await change_password(current_user["user_id"], data, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/forgot-password", response_model=ForgotPasswordResponse)
+async def forgot_pwd(
+    data: ForgotPasswordRequest,
+    db: asyncpg.Connection = Depends(get_db)
+):
+    return await forgot_password(data.email, data.tenant_slug, db)
+
+
+@router.post("/reset-password", response_model=ResetPasswordResponse)
+async def reset_pwd(
+    data: ResetPasswordRequest,
+    db: asyncpg.Connection = Depends(get_db)
+):
+    try:
+        return await reset_password(data.token, data.new_password, db)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

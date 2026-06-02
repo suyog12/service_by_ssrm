@@ -74,3 +74,24 @@ class TokenPayload(BaseModel):
     is_admin: bool
     is_super_admin: bool
     type: str
+    
+# Forgot Password
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+    tenant_slug: str
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
+
+
+# Reset Password
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+class ResetPasswordResponse(BaseModel):
+    message: str

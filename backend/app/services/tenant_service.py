@@ -3,6 +3,7 @@ import asyncpg
 
 from app.utils.password import hash_password
 from app.schemas.auth import TenantRegisterRequest, RegisterResponse
+from app.utils.email import send_registration_confirmation_email
 
 
 def slugify(name: str) -> str:
@@ -130,6 +131,14 @@ async def register_tenant(data: TenantRegisterRequest, db: asyncpg.Connection) -
     # 10. Insert default HR settings
     await db.execute(
         f'INSERT INTO "{schema_name}".hr_settings DEFAULT VALUES'
+    )
+
+    # 11. Send registration confirmation email to admin
+    send_registration_confirmation_email(
+        to_email=data.admin_email,
+        full_name=data.admin_full_name,
+        business_name=data.business_name,
+        business_slug=slug
     )
 
     return RegisterResponse(
