@@ -32,83 +32,81 @@ When a business registers, `core.provision_tenant(schema_name)` creates 60+ tabl
 ---
 
 ## Project Structure
+
+```
 Service By SSRM/
 ├── README.md
-├── migration.sql                    # Full DB migration — run in Supabase SQL Editor
+├── migration.sql
 └── backend/
-├── pytest.ini
-├── requirements.txt
-├── conftest.py                  # Root-level Excel reporter hooks
-├── .env
-├── .env.example
-└── app/
-├── main.py
-├── api/v1/endpoints/
-│   ├── auth.py              # Register, login, refresh, logout, change-password,
-│   │                        # forgot-password, reset-password, me
-│   ├── users.py             # Staff CRUD, assign role, permissions, deactivate
-│   ├── roles.py             # Role templates, permissions, feature registry
-│   ├── tenants.py           # Tenant profile, onboarding
-│   ├── menu.py              # Menu categories and items
-│   └── ingredients.py       # Ingredients CRUD + item ingredient linking
-├── core/
-│   ├── config.py
-│   ├── security.py          # JWT create/decode
-│   ├── dependencies.py      # get_current_user, get_current_admin, require_permission
-│   └── database.py          # asyncpg pool, get_db, get_tenant_db
-├── schemas/
-│   ├── auth.py
-│   ├── user.py
-│   ├── tenant.py
-│   ├── role.py
-│   ├── menu.py
-│   └── ingredient.py
-├── services/
-│   ├── auth_service.py      # login, change_password, refresh, logout,
-│   │                        # forgot_password, reset_password
-│   ├── tenant_service.py    # register_tenant
-│   ├── user_service.py      # create_user, assign_role, update_user, permissions
-│   ├── role_service.py      # role templates, permissions
-│   ├── menu_service.py      # categories, items
-│   └── ingredient_service.py # ingredients, item ingredient linking
-└── utils/
-├── password.py          # bcrypt hash/verify
-└── email.py             # send_welcome_email, send_password_reset_email,
-# send_registration_confirmation_email
-└── tests/
-├── conftest.py              # fixtures: client, db, registered_tenant,
-│                            # admin_token, staff_token, admin_token_b, etc.
-├── auth/
-│   ├── test_register.py
-│   ├── test_login.py
-│   ├── test_logout.py
-│   ├── test_refresh.py
-│   ├── test_change_password.py
-│   ├── test_me.py
-│   └── test_password_reset.py
-├── menu/
-│   ├── test_categories.py
-│   ├── test_items.py
-│   └── test_ingredients.py
-├── roles/
-│   ├── test_features.py
-│   ├── test_role_templates.py
-│   └── test_permissions.py
-├── security/
-│   ├── test_jwt_security.py
-│   ├── test_password_storage.py
-│   └── test_tenant_isolation.py
-├── tenants/
-│   ├── test_tenant_profile.py
-│   └── test_onboarding.py
-└── users/
-├── test_create_user.py
-├── test_list_users.py
-├── test_update_user.py
-├── test_assign_role.py
-├── test_deactivate.py
-└── test_user_permissions.py
----
+    ├── pytest.ini
+    ├── requirements.txt
+    ├── conftest.py
+    ├── .env
+    ├── .env.example
+    └── app/
+    │   ├── main.py
+    │   ├── api/v1/endpoints/
+    │   │   ├── auth.py
+    │   │   ├── users.py
+    │   │   ├── roles.py
+    │   │   ├── tenants.py
+    │   │   ├── menu.py
+    │   │   └── ingredients.py
+    │   ├── core/
+    │   │   ├── config.py
+    │   │   ├── security.py
+    │   │   ├── dependencies.py
+    │   │   └── database.py
+    │   ├── schemas/
+    │   │   ├── auth.py
+    │   │   ├── user.py
+    │   │   ├── tenant.py
+    │   │   ├── role.py
+    │   │   ├── menu.py
+    │   │   └── ingredient.py
+    │   ├── services/
+    │   │   ├── auth_service.py
+    │   │   ├── tenant_service.py
+    │   │   ├── user_service.py
+    │   │   ├── role_service.py
+    │   │   ├── menu_service.py
+    │   │   └── ingredient_service.py
+    │   └── utils/
+    │       ├── password.py
+    │       └── email.py
+    └── tests/
+        ├── conftest.py
+        ├── auth/
+        │   ├── test_register.py
+        │   ├── test_login.py
+        │   ├── test_logout.py
+        │   ├── test_refresh.py
+        │   ├── test_change_password.py
+        │   ├── test_me.py
+        │   └── test_password_reset.py
+        ├── menu/
+        │   ├── test_categories.py
+        │   ├── test_items.py
+        │   └── test_ingredients.py
+        ├── roles/
+        │   ├── test_features.py
+        │   ├── test_role_templates.py
+        │   └── test_permissions.py
+        ├── security/
+        │   ├── test_jwt_security.py
+        │   ├── test_password_storage.py
+        │   └── test_tenant_isolation.py
+        ├── tenants/
+        │   ├── test_tenant_profile.py
+        │   └── test_onboarding.py
+        └── users/
+            ├── test_create_user.py
+            ├── test_list_users.py
+            ├── test_update_user.py
+            ├── test_assign_role.py
+            ├── test_deactivate.py
+            └── test_user_permissions.py
+```
 
 ## API Endpoints
 
