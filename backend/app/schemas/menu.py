@@ -58,11 +58,19 @@ class MenuItemCreate(BaseModel):
     category_id: UUID
     description: Optional[str] = None
     price: Decimal
+    item_type: str = "food"
     tax_rate: Decimal = Decimal("13.00")
     station: Optional[KOTStation] = None
     is_available: bool = True
     image_url: Optional[str] = None
     sort_order: int = 0
+
+    @field_validator("item_type")
+    @classmethod
+    def item_type_valid(cls, v: str) -> str:
+        if v not in ("food", "drinks", "both"):
+            raise ValueError("item_type must be food, drinks, or both")
+        return v
 
     @field_validator("name")
     @classmethod
@@ -91,11 +99,19 @@ class MenuItemUpdate(BaseModel):
     category_id: Optional[UUID] = None
     description: Optional[str] = None
     price: Optional[Decimal] = None
+    item_type: Optional[str] = None
     tax_rate: Optional[Decimal] = None
     station: Optional[KOTStation] = None
     is_available: Optional[bool] = None
     image_url: Optional[str] = None
     sort_order: Optional[int] = None
+
+    @field_validator("item_type")
+    @classmethod
+    def item_type_valid(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ("food", "drinks", "both"):
+            raise ValueError("item_type must be food, drinks, or both")
+        return v
 
     @field_validator("name")
     @classmethod
@@ -119,6 +135,7 @@ class MenuItemResponse(BaseModel):
     category_name: Optional[str] = None
     description: Optional[str] = None
     price: Decimal
+    item_type: str
     tax_rate: Decimal
     station: Optional[str] = None
     is_available: bool

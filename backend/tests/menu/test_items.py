@@ -2,7 +2,7 @@ import pytest
 from tests.conftest import auth
 
 
-# Shared fixture: one category to attach items to 
+# Shared fixture: one category to attach items to
 
 @pytest.fixture
 async def menu_category(client, admin_token):
@@ -39,7 +39,6 @@ async def menu_category_b(client, admin_token_b):
 class TestMenuItemPositive:
 
     async def test_admin_creates_item(self, client, admin_token, menu_category):
-        """Admin creates a menu item with required fields"""
         resp = await client.post(
             "/api/v1/menu/items",
             json={
@@ -59,7 +58,6 @@ class TestMenuItemPositive:
         assert data["category_id"] == menu_category["id"]
 
     async def test_item_has_category_name(self, client, admin_token, menu_category):
-        """Item response includes category name"""
         resp = await client.post(
             "/api/v1/menu/items",
             json={
@@ -73,7 +71,6 @@ class TestMenuItemPositive:
         assert resp.json()["category_name"] == menu_category["name"]
 
     async def test_create_item_with_station(self, client, admin_token, menu_category):
-        """Item can be assigned to a station"""
         resp = await client.post(
             "/api/v1/menu/items",
             json={
@@ -88,7 +85,6 @@ class TestMenuItemPositive:
         assert resp.json()["station"] == "bar"
 
     async def test_create_item_with_all_stations(self, client, admin_token, menu_category):
-        """All three station values are accepted"""
         for station in ["kitchen", "bar", "grill"]:
             resp = await client.post(
                 "/api/v1/menu/items",
@@ -104,7 +100,6 @@ class TestMenuItemPositive:
             assert resp.json()["station"] == station
 
     async def test_create_item_with_custom_tax_rate(self, client, admin_token, menu_category):
-        """Item accepts custom tax rate"""
         resp = await client.post(
             "/api/v1/menu/items",
             json={
@@ -118,8 +113,34 @@ class TestMenuItemPositive:
         assert resp.status_code == 201
         assert float(resp.json()["tax_rate"]) == 0.00
 
+    async def test_create_item_with_item_type_drinks(self, client, admin_token, menu_category):
+        resp = await client.post(
+            "/api/v1/menu/items",
+            json={
+                "name": "Fresh Lime Soda",
+                "category_id": menu_category["id"],
+                "price": "150.00",
+                "item_type": "drinks",
+            },
+            headers=auth(admin_token)
+        )
+        assert resp.status_code == 201
+        assert resp.json()["item_type"] == "drinks"
+
+    async def test_item_type_defaults_to_food(self, client, admin_token, menu_category):
+        resp = await client.post(
+            "/api/v1/menu/items",
+            json={
+                "name": "Plain Rice",
+                "category_id": menu_category["id"],
+                "price": "120.00",
+            },
+            headers=auth(admin_token)
+        )
+        assert resp.status_code == 201
+        assert resp.json()["item_type"] == "food"
+
     async def test_item_appears_in_list(self, client, admin_token, menu_category):
-        """Created item appears in the full item list"""
         await client.post(
             "/api/v1/menu/items",
             json={
@@ -138,7 +159,6 @@ class TestMenuItemPositive:
         assert "Paneer Tikka" in names
 
     async def test_list_items_filtered_by_category(self, client, admin_token, menu_category):
-        """Filtering by category_id returns only that category's items"""
         resp = await client.get(
             f"/api/v1/menu/items?category_id={menu_category['id']}",
             headers=auth(admin_token)
@@ -148,7 +168,6 @@ class TestMenuItemPositive:
             assert item["category_id"] == menu_category["id"]
 
     async def test_get_single_item(self, client, admin_token, menu_category):
-        """Get single item by ID returns correct data"""
         create = await client.post(
             "/api/v1/menu/items",
             json={
@@ -168,7 +187,6 @@ class TestMenuItemPositive:
         assert resp.json()["name"] == "Chicken Momo"
 
     async def test_update_item_price(self, client, admin_token, menu_category):
-        """Admin can update item price"""
         create = await client.post(
             "/api/v1/menu/items",
             json={
@@ -188,7 +206,6 @@ class TestMenuItemPositive:
         assert float(resp.json()["price"]) == 200.00
 
     async def test_update_item_availability(self, client, admin_token, menu_category):
-        """Admin can mark item as unavailable"""
         create = await client.post(
             "/api/v1/menu/items",
             json={
@@ -208,7 +225,6 @@ class TestMenuItemPositive:
         assert resp.json()["is_available"] is False
 
     async def test_update_item_station(self, client, admin_token, menu_category):
-        """Admin can assign a station to an existing item"""
         create = await client.post(
             "/api/v1/menu/items",
             json={
@@ -228,7 +244,6 @@ class TestMenuItemPositive:
         assert resp.json()["station"] == "grill"
 
     async def test_delete_item(self, client, admin_token, menu_category):
-        """Admin can delete a menu item"""
         create = await client.post(
             "/api/v1/menu/items",
             json={
@@ -247,7 +262,6 @@ class TestMenuItemPositive:
         assert "deleted" in resp.json()["message"].lower()
 
     async def test_staff_can_list_items(self, client, staff_token):
-        """Any authenticated user can list items"""
         resp = await client.get(
             "/api/v1/menu/items",
             headers=auth(staff_token)
@@ -255,7 +269,6 @@ class TestMenuItemPositive:
         assert resp.status_code == 200
 
     async def test_staff_can_get_single_item(self, client, staff_token, admin_token, menu_category):
-        """Staff can fetch a single item"""
         create = await client.post(
             "/api/v1/menu/items",
             json={
@@ -276,7 +289,6 @@ class TestMenuItemPositive:
 class TestMenuItemNegative:
 
     async def test_invalid_category_rejected(self, client, admin_token):
-        """Item with non-existent category returns 400"""
         resp = await client.post(
             "/api/v1/menu/items",
             json={
@@ -290,7 +302,6 @@ class TestMenuItemNegative:
         assert "category" in resp.json()["detail"].lower()
 
     async def test_negative_price_rejected(self, client, admin_token, menu_category):
-        """Negative price returns 422"""
         resp = await client.post(
             "/api/v1/menu/items",
             json={
@@ -303,7 +314,6 @@ class TestMenuItemNegative:
         assert resp.status_code == 422
 
     async def test_empty_name_rejected(self, client, admin_token, menu_category):
-        """Empty item name returns 422"""
         resp = await client.post(
             "/api/v1/menu/items",
             json={
@@ -316,7 +326,6 @@ class TestMenuItemNegative:
         assert resp.status_code in [400, 422]
 
     async def test_invalid_station_rejected(self, client, admin_token, menu_category):
-        """Invalid station value returns 422"""
         resp = await client.post(
             "/api/v1/menu/items",
             json={
@@ -329,8 +338,20 @@ class TestMenuItemNegative:
         )
         assert resp.status_code == 422
 
+    async def test_invalid_item_type_rejected(self, client, admin_token, menu_category):
+        resp = await client.post(
+            "/api/v1/menu/items",
+            json={
+                "name": "Bad Type Item",
+                "category_id": menu_category["id"],
+                "price": "100.00",
+                "item_type": "snacks",
+            },
+            headers=auth(admin_token)
+        )
+        assert resp.status_code == 422
+
     async def test_get_nonexistent_item(self, client, admin_token):
-        """Get on non-existent item returns 404"""
         resp = await client.get(
             "/api/v1/menu/items/00000000-0000-0000-0000-000000000000",
             headers=auth(admin_token)
@@ -338,7 +359,6 @@ class TestMenuItemNegative:
         assert resp.status_code == 404
 
     async def test_delete_nonexistent_item(self, client, admin_token):
-        """Delete on non-existent item returns 404"""
         resp = await client.delete(
             "/api/v1/menu/items/00000000-0000-0000-0000-000000000000",
             headers=auth(admin_token)
@@ -346,7 +366,6 @@ class TestMenuItemNegative:
         assert resp.status_code == 404
 
     async def test_staff_cannot_create_item(self, client, staff_token, menu_category):
-        """Staff cannot create menu items"""
         resp = await client.post(
             "/api/v1/menu/items",
             json={
@@ -359,7 +378,6 @@ class TestMenuItemNegative:
         assert resp.status_code == 403
 
     async def test_staff_cannot_delete_item(self, client, staff_token, admin_token, menu_category):
-        """Staff cannot delete menu items"""
         create = await client.post(
             "/api/v1/menu/items",
             json={
@@ -377,7 +395,6 @@ class TestMenuItemNegative:
         assert resp.status_code == 403
 
     async def test_unauthenticated_cannot_list_items(self, client):
-        """No token returns 403"""
         resp = await client.get("/api/v1/menu/items")
         assert resp.status_code == 403
 
@@ -388,7 +405,6 @@ class TestMenuItemSecurity:
         self, client, admin_token, admin_token_b,
         menu_category, menu_category_b
     ):
-        """Tenant A items are not visible to Tenant B"""
         await client.post(
             "/api/v1/menu/items",
             json={
@@ -408,7 +424,6 @@ class TestMenuItemSecurity:
     async def test_cannot_delete_category_with_items(
         self, client, admin_token, menu_category
     ):
-        """Category with items cannot be deleted"""
         await client.post(
             "/api/v1/menu/items",
             json={

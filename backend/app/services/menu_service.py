@@ -111,16 +111,17 @@ async def create_item(db, schema: str, data: dict) -> dict:
     row = await db.fetchrow(
         f"""
         INSERT INTO "{schema}".menu_items
-            (name, category_id, description, price, tax_rate, station,
+            (name, category_id, description, price, item_type, tax_rate, station,
              is_available, image_url, sort_order)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id, name, category_id, description, price, tax_rate,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        RETURNING id, name, category_id, description, price, item_type, tax_rate,
                   station, is_available, image_url, sort_order
         """,
         data["name"],
         data["category_id"],
         data.get("description"),
         data["price"],
+        data.get("item_type", "food"),
         data.get("tax_rate", 13.00),
         data.get("station"),
         data.get("is_available", True),
@@ -137,7 +138,7 @@ async def list_items(db, schema: str, category_id: UUID = None) -> list[dict]:
         rows = await db.fetch(
             f"""
             SELECT i.id, i.name, i.category_id, c.name AS category_name,
-                   i.description, i.price, i.tax_rate, i.station,
+                   i.description, i.price, i.item_type, i.tax_rate, i.station,
                    i.is_available, i.image_url, i.sort_order
             FROM "{schema}".menu_items i
             JOIN "{schema}".menu_categories c ON c.id = i.category_id
@@ -150,7 +151,7 @@ async def list_items(db, schema: str, category_id: UUID = None) -> list[dict]:
         rows = await db.fetch(
             f"""
             SELECT i.id, i.name, i.category_id, c.name AS category_name,
-                   i.description, i.price, i.tax_rate, i.station,
+                   i.description, i.price, i.item_type, i.tax_rate, i.station,
                    i.is_available, i.image_url, i.sort_order
             FROM "{schema}".menu_items i
             JOIN "{schema}".menu_categories c ON c.id = i.category_id
@@ -164,7 +165,7 @@ async def get_item(db, schema: str, item_id: UUID) -> dict:
     row = await db.fetchrow(
         f"""
         SELECT i.id, i.name, i.category_id, c.name AS category_name,
-               i.description, i.price, i.tax_rate, i.station,
+               i.description, i.price, i.item_type, i.tax_rate, i.station,
                i.is_available, i.image_url, i.sort_order
         FROM "{schema}".menu_items i
         JOIN "{schema}".menu_categories c ON c.id = i.category_id
@@ -196,8 +197,8 @@ async def update_item(db, schema: str, item_id: UUID, data: dict) -> dict:
     fields = []
     values = []
     idx = 1
-    for field in ["name", "category_id", "description", "price", "tax_rate",
-                  "station", "is_available", "image_url", "sort_order"]:
+    for field in ["name", "category_id", "description", "price", "item_type",
+                  "tax_rate", "station", "is_available", "image_url", "sort_order"]:
         if field in data and data[field] is not None:
             fields.append(f"{field} = ${idx}")
             values.append(data[field])
