@@ -5,7 +5,12 @@ from app.core.config import settings
 from app.core import database as db_module
 
 
+TENANT_SCHEMA = "tenant_test_hotel_nepal"
+TENANT_SCHEMA_B = "tenant_second_restaurant_nepal"
+
+
 # Reset pool on every test 
+
 @pytest.fixture(autouse=True)
 async def reset_pool():
     await db_module.close_pool()
@@ -13,7 +18,62 @@ async def reset_pool():
     await db_module.close_pool()
 
 
+# Clean inventory tables after every test 
+
+@pytest.fixture(autouse=True)
+async def clean_inventory():
+    yield
+    conn = await asyncpg.connect(
+        host=settings.DB_HOST,
+        port=settings.DB_PORT,
+        user=settings.DB_USER,
+        password=settings.DB_PASSWORD,
+        database=settings.DB_NAME,
+    )
+    try:
+        for schema in [TENANT_SCHEMA, TENANT_SCHEMA_B]:
+            for table in [
+                "po_items",
+                "purchase_orders",
+                "stock_deductions",
+                "stock_adjustments",
+                "stock_batches",
+                "suppliers",
+            ]:
+                try:
+                    await conn.execute(f'DELETE FROM "{schema}".{table}')
+                except Exception:
+                    pass
+            try:
+                # Delete ingredients created by inventory tests only
+                await conn.execute(
+                    f"""
+                    DELETE FROM "{schema}".item_ingredients
+                    WHERE ingredient_id IN (
+                        SELECT id FROM "{schema}".ingredients
+                        WHERE name LIKE 'Stock Test%' OR name LIKE 'PO Test%'
+                    )
+                    """
+                )
+                await conn.execute(
+                    f"""
+                    DELETE FROM "{schema}".ingredients
+                    WHERE name LIKE 'Stock Test%' OR name LIKE 'PO Test%'
+                    """
+                )
+            except Exception:
+                pass
+            try:
+                await conn.execute(
+                    f'UPDATE "{schema}".ingredients SET current_stock = 0'
+                )
+            except Exception:
+                pass
+    finally:
+        await conn.close()
+
 # Direct DB connection per test 
+
 @pytest.fixture
 async def db():
     conn = await asyncpg.connect(
@@ -28,6 +88,7 @@ async def db():
 
 
 # HTTP client per test 
+
 @pytest.fixture
 async def client():
     async with AsyncClient(
@@ -38,6 +99,7 @@ async def client():
 
 
 # One-time DB cleanup before session 
+
 @pytest.fixture(autouse=True, scope="session")
 def clean_db_once():
     import asyncio
@@ -69,7 +131,9 @@ def clean_db_once():
     asyncio.get_event_loop_policy().get_event_loop().run_until_complete(_clean())
     yield
 
+
 # Shared test data 
+
 TEST_BUSINESS = {
     "business_name": "Test Hotel Nepal",
     "business_type": "both",
@@ -100,11 +164,11 @@ def auth(token: str) -> dict:
 
 
 # Fixtures 
+
 @pytest.fixture
 async def registered_tenant(client, db):
     resp = await client.post("/api/v1/auth/register", json=TEST_BUSINESS)
     if resp.status_code == 400 and "already exists" in resp.json().get("detail", ""):
-        # Always reset password to known value via DB to handle test pollution
         from app.utils.password import hash_password
         await db.execute(
             """
@@ -128,6 +192,7 @@ async def registered_tenant(client, db):
         }
     assert resp.status_code == 201, resp.text
     return resp.json()
+
 
 @pytest.fixture
 async def registered_tenant_b(client, db):

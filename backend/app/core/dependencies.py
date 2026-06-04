@@ -149,3 +149,6 @@ async def get_current_user_strict(
         "is_admin": payload["is_admin"],
         "is_super_admin": payload["is_super_admin"],
     }
+    
+# Alias used across endpoint files for admin-only routes
+require_admin = get_current_admin

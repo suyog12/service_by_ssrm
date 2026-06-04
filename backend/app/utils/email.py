@@ -157,3 +157,11 @@ def send_registration_confirmation_email(
     """
     message.attach(MIMEText(html, "html"))
     return _send(message, to_email)
+
+async def send_email(to: str, subject: str, body: str) -> bool:
+    message = MIMEMultipart("alternative")
+    message["Subject"] = subject
+    message["From"] = settings.EMAILS_FROM_EMAIL
+    message["To"] = to
+    message.attach(MIMEText(body, "plain"))
+    return _send(message, to)
