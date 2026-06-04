@@ -6,7 +6,7 @@ import string
 
 
 def _generate_kot_number(order_number: str, kot_type: str) -> str:
-    suffix = kot_type[0].upper()  # F for food, D for drinks
+    suffix = kot_type[0].upper()
     return f"{order_number}-{suffix}"
 
 
@@ -18,7 +18,6 @@ async def generate_kots_for_order(db, schema: str, order_id: UUID) -> list[dict]
     if not order:
         raise HTTPException(404, "Order not found")
 
-    # Get all pending items grouped by type
     items = await db.fetch(
         f"""
         SELECT oi.id, oi.quantity, oi.special_instruction,
@@ -33,7 +32,6 @@ async def generate_kots_for_order(db, schema: str, order_id: UUID) -> list[dict]
     if not items:
         return []
 
-    # Separate food and drinks
     food_items = [i for i in items if i["item_type"] in ("food", "both")]
     drink_items = [i for i in items if i["item_type"] in ("drinks", "both")]
 
@@ -45,7 +43,6 @@ async def generate_kots_for_order(db, schema: str, order_id: UUID) -> list[dict]
 
         kot_number = _generate_kot_number(order["order_number"], kot_type)
 
-        # Upsert — if KOT already exists for this order+type, skip
         existing = await db.fetchrow(
             f"""
             SELECT id FROM "{schema}".kots
@@ -68,7 +65,6 @@ async def generate_kots_for_order(db, schema: str, order_id: UUID) -> list[dict]
         )
         kots.append(dict(row))
 
-        # Mark items as preparing
         for item in kot_items:
             await db.execute(
                 f"""
@@ -170,20 +166,23 @@ async def get_kot_html(db, schema: str, kot_id: UUID) -> str:
         f"""
         SELECT k.id, k.kot_number, k.kot_type, k.created_at,
                o.order_number, o.order_type, o.notes,
-               t.table_number
+               t.table_number,
+               tn.name AS biz_name
         FROM "{schema}".kots k
-        JOIN "{schema}".orders o ON o.id = k.order_id
+        JOIN "{schema}".orders o  ON o.id = k.order_id
         LEFT JOIN "{schema}".tables t ON t.id = o.table_id
+        LEFT JOIN core.tenants tn ON tn.schema_name = $2
         WHERE k.id = $1
         """,
-        kot_id
+        kot_id, schema
     )
     if not kot:
         raise HTTPException(404, "KOT not found")
 
     items = await db.fetch(
         f"""
-        SELECT oi.quantity, oi.special_instruction, mi.name AS item_name, mi.station
+        SELECT oi.quantity, oi.special_instruction,
+               mi.name AS item_name, mi.station
         FROM "{schema}".order_items oi
         JOIN "{schema}".menu_items mi ON mi.id = oi.menu_item_id
         WHERE oi.order_id = (
@@ -197,23 +196,44 @@ async def get_kot_html(db, schema: str, kot_id: UUID) -> str:
         kot["kot_type"]
     )
 
-    table_info = f"Table: {kot['table_number']}" if kot["table_number"] else kot["order_type"].replace("_", " ").title()
+    biz_name = kot["biz_name"] or "Restaurant"
+
+    if kot["table_number"]:
+        table_info = f"Table: {kot['table_number']}"
+    elif kot["order_type"]:
+        table_info = kot["order_type"].replace("_", " ").title()
+    else:
+        table_info = ""
+
     created_time = kot["created_at"].strftime("%Y-%m-%d %H:%M") if kot["created_at"] else ""
 
     items_html = ""
     for item in items:
-        instruction = f"<div class='instruction'>Note: {item['special_instruction']}</div>" if item["special_instruction"] else ""
-        station = f"<span class='station'>[{item['station'].upper()}]</span>" if item["station"] else ""
+        instruction = (
+            f"<div class='instruction'>* {item['special_instruction']}</div>"
+            if item["special_instruction"] else ""
+        )
+        station = (
+            f"<span class='station'>[{item['station'].upper()}]</span>"
+            if item["station"] else ""
+        )
         items_html += f"""
         <div class='item'>
-            <span class='qty'>{item['quantity']}x</span>
-            <span class='name'>{item['item_name']}</span>
-            {station}
+            <div class='item-main'>
+                <span class='qty'>{item['quantity']}x</span>
+                <span class='name'>{item['item_name']}</span>
+                {station}
+            </div>
             {instruction}
         </div>
         """
 
-    kot_type_label = "KITCHEN ORDER" if kot["kot_type"] == "food" else "BAR ORDER"
+    if kot["kot_type"] == "food":
+        kot_type_label = "KITCHEN ORDER"
+        copy_label = "KITCHEN COPY"
+    else:
+        kot_type_label = "BAR ORDER"
+        copy_label = "BAR COPY"
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -227,32 +247,105 @@ async def get_kot_html(db, schema: str, kot_id: UUID) -> str:
         padding: 8px;
         font-size: 13px;
     }}
-    .header {{ text-align: center; border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 6px; }}
-    .kot-type {{ font-size: 16px; font-weight: bold; letter-spacing: 2px; }}
-    .kot-number {{ font-size: 14px; font-weight: bold; margin: 4px 0; }}
-    .meta {{ font-size: 12px; color: #333; }}
-    .items {{ margin: 8px 0; border-top: 1px dashed #000; padding-top: 6px; }}
-    .item {{ margin: 6px 0; display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }}
-    .qty {{ font-weight: bold; min-width: 24px; }}
-    .name {{ flex: 1; font-weight: bold; }}
-    .station {{ font-size: 11px; color: #555; }}
-    .instruction {{ width: 100%; font-size: 11px; color: #555; padding-left: 24px; font-style: italic; }}
-    .footer {{ text-align: center; border-top: 1px dashed #000; padding-top: 6px; margin-top: 6px; font-size: 11px; }}
+    .biz-name {{
+        text-align: center;
+        font-size: 13px;
+        font-weight: bold;
+        margin-bottom: 3px;
+    }}
+    .header {{
+        text-align: center;
+        border-bottom: 1px dashed #000;
+        padding-bottom: 8px;
+        margin-bottom: 6px;
+    }}
+    .divider {{
+        border: none;
+        border-top: 1px dashed #ccc;
+        margin: 5px 0;
+    }}
+    .kot-type {{
+        font-size: 17px;
+        font-weight: bold;
+        letter-spacing: 2px;
+        margin: 4px 0 2px;
+    }}
+    .kot-number {{
+        font-size: 14px;
+        font-weight: bold;
+        margin: 3px 0;
+    }}
+    .meta {{
+        font-size: 11px;
+        color: #333;
+        margin: 2px 0;
+    }}
+    .items {{
+        margin: 8px 0;
+        border-top: 1px dashed #000;
+        padding-top: 8px;
+    }}
+    .item {{
+        margin: 8px 0;
+    }}
+    .item-main {{
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+    }}
+    .qty {{
+        font-size: 18px;
+        font-weight: bold;
+        min-width: 32px;
+    }}
+    .name {{
+        font-size: 14px;
+        font-weight: bold;
+        flex: 1;
+    }}
+    .station {{
+        font-size: 10px;
+        color: #555;
+    }}
+    .instruction {{
+        font-size: 11px;
+        color: #444;
+        padding-left: 38px;
+        font-style: italic;
+        margin-top: 2px;
+    }}
+    .footer {{
+        text-align: center;
+        border-top: 1px dashed #000;
+        padding-top: 6px;
+        margin-top: 8px;
+        font-size: 11px;
+        color: #333;
+    }}
+    .copy-label {{
+        font-size: 12px;
+        font-weight: bold;
+        letter-spacing: 1px;
+        margin-top: 3px;
+    }}
 </style>
 </head>
 <body>
     <div class='header'>
+        <div class='biz-name'>{biz_name}</div>
+        <hr class='divider'>
         <div class='kot-type'>{kot_type_label}</div>
         <div class='kot-number'>{kot['kot_number']}</div>
         <div class='meta'>{table_info}</div>
         <div class='meta'>{created_time}</div>
-        {f"<div class='meta'>Order Note: {kot['notes']}</div>" if kot['notes'] else ""}
+        {f"<div class='meta' style='margin-top:4px;font-style:italic;'>Note: {kot['notes']}</div>" if kot['notes'] else ""}
     </div>
     <div class='items'>
         {items_html}
     </div>
     <div class='footer'>
         Order: {kot['order_number']}
+        <div class='copy-label'>— {copy_label} —</div>
     </div>
 </body>
 </html>"""
