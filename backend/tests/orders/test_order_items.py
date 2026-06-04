@@ -42,7 +42,7 @@ async def menu_item_for_order(client, admin_token):
 async def ingredient_for_order(client, admin_token):
     resp = await client.post(
         "/api/v1/ingredients",
-        json={"name": "Order Test Beef", "unit": "grams", "reorder_level": "100"},
+        json={"name": "Order Test Beef", "unit": "g", "reorder_level": "100"},
         headers=auth(admin_token)
     )
     if resp.status_code == 400:

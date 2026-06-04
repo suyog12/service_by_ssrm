@@ -3,8 +3,10 @@ from typing import Optional
 from uuid import UUID
 from decimal import Decimal
 
+VALID_UNITS = ("g", "ml", "piece", "bunch", "packet")
 
-# Ingredient schemas 
+
+# Ingredient schemas
 
 class IngredientCreate(BaseModel):
     name: str
@@ -21,10 +23,10 @@ class IngredientCreate(BaseModel):
 
     @field_validator("unit")
     @classmethod
-    def unit_not_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("Unit cannot be empty")
-        return v.strip()
+    def unit_valid(cls, v: str) -> str:
+        if v not in VALID_UNITS:
+            raise ValueError(f"unit must be one of: {', '.join(VALID_UNITS)}")
+        return v
 
 
 class IngredientUpdate(BaseModel):
@@ -40,6 +42,13 @@ class IngredientUpdate(BaseModel):
             raise ValueError("Ingredient name cannot be empty")
         return v.strip() if v else v
 
+    @field_validator("unit")
+    @classmethod
+    def unit_valid(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in VALID_UNITS:
+            raise ValueError(f"unit must be one of: {', '.join(VALID_UNITS)}")
+        return v
+
 
 class IngredientResponse(BaseModel):
     id: UUID
@@ -53,7 +62,7 @@ class IngredientResponse(BaseModel):
         from_attributes = True
 
 
-# Item ingredient linking schemas 
+# Item ingredient linking schemas
 
 class ItemIngredientAdd(BaseModel):
     ingredient_id: UUID

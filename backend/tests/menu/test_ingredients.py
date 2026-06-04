@@ -6,7 +6,7 @@ from tests.conftest import auth
 async def ingredient(client, admin_token):
     resp = await client.post(
         "/api/v1/ingredients",
-        json={"name": "Chicken Breast", "unit": "grams", "reorder_level": "500"},
+        json={"name": "Chicken Breast", "unit": "g", "reorder_level": "500"},
         headers=auth(admin_token)
     )
     if resp.status_code == 400 and "already exists" in resp.json().get("detail", ""):
@@ -48,13 +48,13 @@ class TestIngredientPositive:
     async def test_admin_creates_ingredient(self, client, admin_token):
         resp = await client.post(
             "/api/v1/ingredients",
-            json={"name": "Tomato", "unit": "grams"},
+            json={"name": "Tomato", "unit": "g"},
             headers=auth(admin_token)
         )
         assert resp.status_code == 201
         data = resp.json()
         assert data["name"] == "Tomato"
-        assert data["unit"] == "grams"
+        assert data["unit"] == "g"
         assert float(data["current_stock"]) == 0
         assert "id" in data
 
@@ -88,7 +88,7 @@ class TestIngredientPositive:
     async def test_delete_unlinked_ingredient(self, client, admin_token):
         create = await client.post(
             "/api/v1/ingredients",
-            json={"name": "DeleteMe Ingredient", "unit": "kg"},
+            json={"name": "DeleteMe Ingredient", "unit": "g"},
             headers=auth(admin_token)
         )
         assert create.status_code == 201
@@ -105,7 +105,7 @@ class TestIngredientNegative:
     async def test_duplicate_name_rejected(self, client, admin_token, ingredient):
         resp = await client.post(
             "/api/v1/ingredients",
-            json={"name": ingredient["name"], "unit": "kg"},
+            json={"name": ingredient["name"], "unit": "g"},
             headers=auth(admin_token)
         )
         assert resp.status_code == 400
@@ -114,7 +114,7 @@ class TestIngredientNegative:
     async def test_empty_name_rejected(self, client, admin_token):
         resp = await client.post(
             "/api/v1/ingredients",
-            json={"name": "", "unit": "grams"},
+            json={"name": "", "unit": "g"},
             headers=auth(admin_token)
         )
         assert resp.status_code in [400, 422]
@@ -129,7 +129,7 @@ class TestIngredientNegative:
     async def test_staff_cannot_create_ingredient(self, client, staff_token):
         resp = await client.post(
             "/api/v1/ingredients",
-            json={"name": "Unauthorized Ingredient", "unit": "grams"},
+            json={"name": "Unauthorized Ingredient", "unit": "g"},
             headers=auth(staff_token)
         )
         assert resp.status_code == 403
