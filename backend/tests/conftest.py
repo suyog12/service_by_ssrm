@@ -79,7 +79,38 @@ async def clean_inventory():
                     await conn.execute(f'DELETE FROM "{schema}".{table}')
                 except Exception:
                     pass
+            
+            # Hotel tables
+            for table in [
+                "guest_folio",
+                "room_charges",
+                "housekeeping_tasks",
+                "hotel_reservations",
+                "rooms",
+                "pricing_rules",
+                "room_type_minibar",
+                "room_type_housekeeping_kit",
+                "room_types",
+                "guests",
+            ]:
+                try:
+                    await conn.execute(f'DELETE FROM "{schema}".{table}')
+                except Exception:
+                    pass
 
+            # Customer profile tables
+            for table in [
+                "customer_visit_notes",
+                "customer_preferences",
+                "loyalty_transactions",
+                "loyalty_accounts",
+                "customers",
+            ]:
+                try:
+                    await conn.execute(f'DELETE FROM "{schema}".{table}')
+                except Exception:
+                    pass
+                
             # Inventory
             for table in [
                 "po_items",
