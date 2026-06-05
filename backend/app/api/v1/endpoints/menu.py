@@ -14,14 +14,18 @@ router = APIRouter(prefix="/menu", tags=["Menu Management"])
 
 
 # Categories 
+
 @router.post("/categories", response_model=CategoryResponse, status_code=201)
 async def create_category(
     body: CategoryCreate,
     current_user: dict = Depends(get_current_admin),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await menu_service.create_category(db, schema, body.model_dump())
+        return await menu_service.create_category(
+            db, schema, outlet_id, body.model_dump()
+        )
 
 
 @router.get("/categories", response_model=list[CategoryResponse])
@@ -29,8 +33,9 @@ async def list_categories(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await menu_service.list_categories(db, schema)
+        return await menu_service.list_categories(db, schema, outlet_id)
 
 
 @router.patch("/categories/{category_id}", response_model=CategoryResponse)
@@ -40,9 +45,12 @@ async def update_category(
     current_user: dict = Depends(get_current_admin),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
         data = {k: v for k, v in body.model_dump().items() if v is not None}
-        return await menu_service.update_category(db, schema, category_id, data)
+        return await menu_service.update_category(
+            db, schema, outlet_id, category_id, data
+        )
 
 
 @router.delete("/categories/{category_id}")
@@ -51,20 +59,27 @@ async def delete_category(
     current_user: dict = Depends(get_current_admin),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        await menu_service.delete_category(db, schema, category_id)
+        await menu_service.delete_category(
+            db, schema, outlet_id, category_id
+        )
         return {"message": "Category deleted successfully"}
 
 
 # Menu Items 
+
 @router.post("/items", response_model=MenuItemResponse, status_code=201)
 async def create_item(
     body: MenuItemCreate,
     current_user: dict = Depends(get_current_admin),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await menu_service.create_item(db, schema, body.model_dump())
+        return await menu_service.create_item(
+            db, schema, outlet_id, body.model_dump()
+        )
 
 
 @router.get("/items", response_model=list[MenuItemResponse])
@@ -73,8 +88,11 @@ async def list_items(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await menu_service.list_items(db, schema, category_id)
+        return await menu_service.list_items(
+            db, schema, outlet_id, category_id
+        )
 
 
 @router.get("/items/{item_id}", response_model=MenuItemResponse)
@@ -83,8 +101,9 @@ async def get_item(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await menu_service.get_item(db, schema, item_id)
+        return await menu_service.get_item(db, schema, outlet_id, item_id)
 
 
 @router.patch("/items/{item_id}", response_model=MenuItemResponse)
@@ -94,9 +113,12 @@ async def update_item(
     current_user: dict = Depends(get_current_admin),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
         data = {k: v for k, v in body.model_dump().items() if v is not None}
-        return await menu_service.update_item(db, schema, item_id, data)
+        return await menu_service.update_item(
+            db, schema, outlet_id, item_id, data
+        )
 
 
 @router.delete("/items/{item_id}")
@@ -105,6 +127,7 @@ async def delete_item(
     current_user: dict = Depends(get_current_admin),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        await menu_service.delete_item(db, schema, item_id)
+        await menu_service.delete_item(db, schema, outlet_id, item_id)
         return {"message": "Menu item deleted successfully"}

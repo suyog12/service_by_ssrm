@@ -1,8 +1,5 @@
 from uuid import UUID
 from fastapi import HTTPException
-from datetime import datetime, timezone
-import secrets
-import string
 
 
 def _generate_kot_number(order_number: str, kot_type: str) -> str:
@@ -10,10 +7,15 @@ def _generate_kot_number(order_number: str, kot_type: str) -> str:
     return f"{order_number}-{suffix}"
 
 
-async def generate_kots_for_order(db, schema: str, order_id: UUID) -> list[dict]:
+async def generate_kots_for_order(
+    db, schema: str, outlet_id: UUID, order_id: UUID
+) -> list[dict]:
     order = await db.fetchrow(
-        f'SELECT id, order_number FROM "{schema}".orders WHERE id = $1',
-        order_id
+        f"""
+        SELECT id, order_number FROM "{schema}".orders
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        order_id, outlet_id
     )
     if not order:
         raise HTTPException(404, "Order not found")
@@ -56,12 +58,12 @@ async def generate_kots_for_order(db, schema: str, order_id: UUID) -> list[dict]
         row = await db.fetchrow(
             f"""
             INSERT INTO "{schema}".kots
-                (order_id, kot_number, kot_type)
-            VALUES ($1, $2, $3)
+                (outlet_id, order_id, kot_number, kot_type)
+            VALUES ($1, $2, $3, $4)
             RETURNING id, order_id, kot_number, kot_type,
                       display_status, assigned_to, printed_at, created_at
             """,
-            order_id, kot_number, kot_type
+            outlet_id, order_id, kot_number, kot_type
         )
         kots.append(dict(row))
 
@@ -78,10 +80,15 @@ async def generate_kots_for_order(db, schema: str, order_id: UUID) -> list[dict]
     return kots
 
 
-async def get_order_kots(db, schema: str, order_id: UUID) -> list[dict]:
+async def get_order_kots(
+    db, schema: str, outlet_id: UUID, order_id: UUID
+) -> list[dict]:
     order = await db.fetchrow(
-        f'SELECT id FROM "{schema}".orders WHERE id = $1',
-        order_id
+        f"""
+        SELECT id FROM "{schema}".orders
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        order_id, outlet_id
     )
     if not order:
         raise HTTPException(404, "Order not found")
@@ -99,7 +106,9 @@ async def get_order_kots(db, schema: str, order_id: UUID) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-async def get_pending_kots(db, schema: str) -> list[dict]:
+async def get_pending_kots(
+    db, schema: str, outlet_id: UUID
+) -> list[dict]:
     rows = await db.fetch(
         f"""
         SELECT k.id, k.order_id, k.kot_number, k.kot_type,
@@ -108,19 +117,25 @@ async def get_pending_kots(db, schema: str) -> list[dict]:
         FROM "{schema}".kots k
         JOIN "{schema}".orders o ON o.id = k.order_id
         LEFT JOIN "{schema}".tables t ON t.id = o.table_id
-        WHERE k.display_status IN ('pending', 'assigned', 'preparing')
+        WHERE k.outlet_id = $1
+          AND k.display_status IN ('pending', 'assigned', 'preparing')
         ORDER BY k.created_at
-        """
+        """,
+        outlet_id
     )
     return [dict(r) for r in rows]
 
 
 async def assign_kot(
-    db, schema: str, kot_id: UUID, assigned_to: UUID
+    db, schema: str, outlet_id: UUID,
+    kot_id: UUID, assigned_to: UUID
 ) -> dict:
     kot = await db.fetchrow(
-        f'SELECT id, display_status FROM "{schema}".kots WHERE id = $1',
-        kot_id
+        f"""
+        SELECT id, display_status FROM "{schema}".kots
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        kot_id, outlet_id
     )
     if not kot:
         raise HTTPException(404, "KOT not found")
@@ -140,10 +155,15 @@ async def assign_kot(
     return dict(row)
 
 
-async def mark_kot_printed(db, schema: str, kot_id: UUID) -> dict:
+async def mark_kot_printed(
+    db, schema: str, outlet_id: UUID, kot_id: UUID
+) -> dict:
     kot = await db.fetchrow(
-        f'SELECT id FROM "{schema}".kots WHERE id = $1',
-        kot_id
+        f"""
+        SELECT id FROM "{schema}".kots
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        kot_id, outlet_id
     )
     if not kot:
         raise HTTPException(404, "KOT not found")
@@ -161,7 +181,9 @@ async def mark_kot_printed(db, schema: str, kot_id: UUID) -> dict:
     return dict(row)
 
 
-async def get_kot_html(db, schema: str, kot_id: UUID) -> str:
+async def get_kot_html(
+    db, schema: str, outlet_id: UUID, kot_id: UUID
+) -> str:
     kot = await db.fetchrow(
         f"""
         SELECT k.id, k.kot_number, k.kot_type, k.created_at,
@@ -171,10 +193,10 @@ async def get_kot_html(db, schema: str, kot_id: UUID) -> str:
         FROM "{schema}".kots k
         JOIN "{schema}".orders o  ON o.id = k.order_id
         LEFT JOIN "{schema}".tables t ON t.id = o.table_id
-        LEFT JOIN core.tenants tn ON tn.schema_name = $2
-        WHERE k.id = $1
+        LEFT JOIN core.tenants tn ON tn.schema_name = $3
+        WHERE k.id = $1 AND k.outlet_id = $2
         """,
-        kot_id, schema
+        kot_id, outlet_id, schema
     )
     if not kot:
         raise HTTPException(404, "KOT not found")
@@ -192,8 +214,7 @@ async def get_kot_html(db, schema: str, kot_id: UUID) -> str:
         AND oi.status != 'cancelled'
         ORDER BY oi.created_at
         """,
-        kot_id,
-        kot["kot_type"]
+        kot_id, kot["kot_type"]
     )
 
     biz_name = kot["biz_name"] or "Restaurant"
@@ -205,7 +226,10 @@ async def get_kot_html(db, schema: str, kot_id: UUID) -> str:
     else:
         table_info = ""
 
-    created_time = kot["created_at"].strftime("%Y-%m-%d %H:%M") if kot["created_at"] else ""
+    created_time = (
+        kot["created_at"].strftime("%Y-%m-%d %H:%M")
+        if kot["created_at"] else ""
+    )
 
     items_html = ""
     for item in items:
@@ -241,93 +265,22 @@ async def get_kot_html(db, schema: str, kot_id: UUID) -> str:
 <meta charset="UTF-8">
 <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    body {{
-        font-family: 'Courier New', monospace;
-        width: 80mm;
-        padding: 8px;
-        font-size: 13px;
-    }}
-    .biz-name {{
-        text-align: center;
-        font-size: 13px;
-        font-weight: bold;
-        margin-bottom: 3px;
-    }}
-    .header {{
-        text-align: center;
-        border-bottom: 1px dashed #000;
-        padding-bottom: 8px;
-        margin-bottom: 6px;
-    }}
-    .divider {{
-        border: none;
-        border-top: 1px dashed #ccc;
-        margin: 5px 0;
-    }}
-    .kot-type {{
-        font-size: 17px;
-        font-weight: bold;
-        letter-spacing: 2px;
-        margin: 4px 0 2px;
-    }}
-    .kot-number {{
-        font-size: 14px;
-        font-weight: bold;
-        margin: 3px 0;
-    }}
-    .meta {{
-        font-size: 11px;
-        color: #333;
-        margin: 2px 0;
-    }}
-    .items {{
-        margin: 8px 0;
-        border-top: 1px dashed #000;
-        padding-top: 8px;
-    }}
-    .item {{
-        margin: 8px 0;
-    }}
-    .item-main {{
-        display: flex;
-        align-items: baseline;
-        gap: 6px;
-    }}
-    .qty {{
-        font-size: 18px;
-        font-weight: bold;
-        min-width: 32px;
-    }}
-    .name {{
-        font-size: 14px;
-        font-weight: bold;
-        flex: 1;
-    }}
-    .station {{
-        font-size: 10px;
-        color: #555;
-    }}
-    .instruction {{
-        font-size: 11px;
-        color: #444;
-        padding-left: 38px;
-        font-style: italic;
-        margin-top: 2px;
-    }}
-    .footer {{
-        text-align: center;
-        border-top: 1px dashed #000;
-        padding-top: 6px;
-        margin-top: 8px;
-        font-size: 11px;
-        color: #333;
-    }}
-    .copy-label {{
-        font-size: 12px;
-        font-weight: bold;
-        letter-spacing: 1px;
-        margin-top: 3px;
-    }}
+    body {{ font-family: 'Courier New', monospace; width: 80mm; padding: 8px; font-size: 13px; }}
+    .biz-name {{ text-align: center; font-size: 13px; font-weight: bold; margin-bottom: 3px; }}
+    .header {{ text-align: center; border-bottom: 1px dashed #000; padding-bottom: 8px; margin-bottom: 6px; }}
+    .divider {{ border: none; border-top: 1px dashed #ccc; margin: 5px 0; }}
+    .kot-type {{ font-size: 17px; font-weight: bold; letter-spacing: 2px; margin: 4px 0 2px; }}
+    .kot-number {{ font-size: 14px; font-weight: bold; margin: 3px 0; }}
+    .meta {{ font-size: 11px; color: #333; margin: 2px 0; }}
+    .items {{ margin: 8px 0; border-top: 1px dashed #000; padding-top: 8px; }}
+    .item {{ margin: 8px 0; }}
+    .item-main {{ display: flex; align-items: baseline; gap: 6px; }}
+    .qty {{ font-size: 18px; font-weight: bold; min-width: 32px; }}
+    .name {{ font-size: 14px; font-weight: bold; flex: 1; }}
+    .station {{ font-size: 10px; color: #555; }}
+    .instruction {{ font-size: 11px; color: #444; padding-left: 38px; font-style: italic; margin-top: 2px; }}
+    .footer {{ text-align: center; border-top: 1px dashed #000; padding-top: 6px; margin-top: 8px; font-size: 11px; color: #333; }}
+    .copy-label {{ font-size: 12px; font-weight: bold; letter-spacing: 1px; margin-top: 3px; }}
 </style>
 </head>
 <body>

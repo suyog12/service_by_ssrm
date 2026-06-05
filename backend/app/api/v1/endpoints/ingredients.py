@@ -20,8 +20,11 @@ async def create_ingredient(
     current_user: dict = Depends(get_current_admin),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await ingredient_service.create_ingredient(db, schema, body.model_dump())
+        return await ingredient_service.create_ingredient(
+            db, schema, outlet_id, body.model_dump()
+        )
 
 
 @router.get("/ingredients", response_model=list[IngredientResponse])
@@ -29,8 +32,11 @@ async def list_ingredients(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await ingredient_service.list_ingredients(db, schema)
+        return await ingredient_service.list_ingredients(
+            db, schema, outlet_id
+        )
 
 
 @router.get("/ingredients/{ingredient_id}", response_model=IngredientResponse)
@@ -39,8 +45,11 @@ async def get_ingredient(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await ingredient_service.get_ingredient(db, schema, ingredient_id)
+        return await ingredient_service.get_ingredient(
+            db, schema, outlet_id, ingredient_id
+        )
 
 
 @router.patch("/ingredients/{ingredient_id}", response_model=IngredientResponse)
@@ -50,9 +59,12 @@ async def update_ingredient(
     current_user: dict = Depends(get_current_admin),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
         data = {k: v for k, v in body.model_dump().items() if v is not None}
-        return await ingredient_service.update_ingredient(db, schema, ingredient_id, data)
+        return await ingredient_service.update_ingredient(
+            db, schema, outlet_id, ingredient_id, data
+        )
 
 
 @router.delete("/ingredients/{ingredient_id}")
@@ -61,9 +73,13 @@ async def delete_ingredient(
     current_user: dict = Depends(get_current_admin),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        await ingredient_service.delete_ingredient(db, schema, ingredient_id)
+        await ingredient_service.delete_ingredient(
+            db, schema, outlet_id, ingredient_id
+        )
         return {"message": "Ingredient deleted successfully"}
+
 
 # Item ingredient linking 
 
@@ -78,9 +94,10 @@ async def add_ingredient_to_item(
     current_user: dict = Depends(get_current_admin),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
         return await ingredient_service.add_ingredient_to_item(
-            db, schema, item_id, body.model_dump()
+            db, schema, outlet_id, item_id, body.model_dump()
         )
 
 
@@ -93,8 +110,11 @@ async def list_item_ingredients(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await ingredient_service.list_item_ingredients(db, schema, item_id)
+        return await ingredient_service.list_item_ingredients(
+            db, schema, outlet_id, item_id
+        )
 
 
 @router.patch(
@@ -108,9 +128,10 @@ async def update_item_ingredient(
     current_user: dict = Depends(get_current_admin),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
         return await ingredient_service.update_item_ingredient(
-            db, schema, item_id, ingredient_id, body.model_dump()
+            db, schema, outlet_id, item_id, ingredient_id, body.model_dump()
         )
 
 
@@ -121,8 +142,9 @@ async def remove_ingredient_from_item(
     current_user: dict = Depends(get_current_admin),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
         await ingredient_service.remove_ingredient_from_item(
-            db, schema, item_id, ingredient_id
+            db, schema, outlet_id, item_id, ingredient_id
         )
         return {"message": "Ingredient removed from item"}

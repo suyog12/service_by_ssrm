@@ -19,9 +19,10 @@ async def create_order(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
         return await order_service.create_order(
-            db, schema, body.model_dump(), current_user["user_id"]
+            db, schema, outlet_id, body.model_dump(), current_user["user_id"]
         )
 
 
@@ -31,8 +32,9 @@ async def list_orders(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await order_service.list_orders(db, schema, status)
+        return await order_service.list_orders(db, schema, outlet_id, status)
 
 
 @router.get("/{order_id}", response_model=OrderResponse)
@@ -41,8 +43,11 @@ async def get_order(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await order_service.get_order(db, schema, order_id)
+        return await order_service.get_order(
+            db, schema, outlet_id, order_id
+        )
 
 
 @router.patch("/{order_id}/status", response_model=OrderResponse)
@@ -52,33 +57,46 @@ async def update_order_status(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
         return await order_service.update_order_status(
-            db, schema, order_id, body.status.value, current_user["user_id"]
+            db, schema, outlet_id, order_id,
+            body.status.value, current_user["user_id"]
         )
 
 
-@router.post("/{order_id}/items", response_model=OrderItemResponse, status_code=201)
+@router.post(
+    "/{order_id}/items",
+    response_model=OrderItemResponse,
+    status_code=201
+)
 async def add_item_to_order(
     order_id: UUID,
     body: OrderItemAdd,
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
         return await order_service.add_item_to_order(
-            db, schema, order_id, body.model_dump()
+            db, schema, outlet_id, order_id, body.model_dump()
         )
 
 
-@router.get("/{order_id}/items", response_model=list[OrderItemResponse])
+@router.get(
+    "/{order_id}/items",
+    response_model=list[OrderItemResponse]
+)
 async def list_order_items(
     order_id: UUID,
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await order_service.list_order_items(db, schema, order_id)
+        return await order_service.list_order_items(
+            db, schema, outlet_id, order_id
+        )
 
 
 @router.patch(
@@ -92,9 +110,11 @@ async def update_item_status(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
         return await order_service.update_item_status(
-            db, schema, order_id, item_id, body.status.value
+            db, schema, outlet_id, order_id,
+            item_id, body.status.value
         )
 
 
@@ -105,6 +125,9 @@ async def cancel_order_item(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        await order_service.cancel_order_item(db, schema, order_id, item_id)
+        await order_service.cancel_order_item(
+            db, schema, outlet_id, order_id, item_id
+        )
         return {"message": "Item cancelled"}

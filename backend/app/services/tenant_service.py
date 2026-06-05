@@ -19,32 +19,30 @@ def schema_name_from_slug(slug: str) -> str:
     return f"tenant_{safe}"
 
 
-async def register_tenant(data: TenantRegisterRequest, db: asyncpg.Connection) -> RegisterResponse:
-    # Validate business_name is not empty or whitespace
+async def register_tenant(
+    data: TenantRegisterRequest, db: asyncpg.Connection
+) -> RegisterResponse:
     if not data.business_name or not data.business_name.strip():
         raise ValueError("Business name cannot be empty")
 
-    # Validate business_name length
     if len(data.business_name) > 255:
         raise ValueError("Business name is too long (maximum 255 characters)")
 
-    # Validate business_type explicitly
     if data.business_type not in ("restaurant", "hotel", "both"):
         raise ValueError("Business type must be restaurant, hotel, or both")
 
-    # rest of existing code...
     slug = slugify(data.business_name)
     schema_name = schema_name_from_slug(slug)
 
-    # 2. Check slug is not already taken
     existing = await db.fetchrow(
         "SELECT id FROM core.tenants WHERE slug = $1",
         slug
     )
     if existing:
-        raise ValueError(f"A business with the name '{data.business_name}' already exists")
+        raise ValueError(
+            f"A business with the name '{data.business_name}' already exists"
+        )
 
-    # 3. Create tenant record
     tenant = await db.fetchrow(
         """
         INSERT INTO core.tenants (
@@ -64,7 +62,6 @@ async def register_tenant(data: TenantRegisterRequest, db: asyncpg.Connection) -
 
     tenant_id = tenant["id"]
 
-    # 4. Create admin user in core.users
     password_hash = hash_password(data.admin_password)
 
     user = await db.fetchrow(
@@ -84,13 +81,11 @@ async def register_tenant(data: TenantRegisterRequest, db: asyncpg.Connection) -
 
     user_id = user["id"]
 
-    # 5. Provision the tenant's private schema (creates all 64 tables)
     await db.execute(
         "SELECT core.provision_tenant($1)",
         schema_name
     )
 
-    # 6. Create user profile in tenant schema
     await db.execute(
         f"""
         INSERT INTO "{schema_name}".user_profiles (id, is_admin, display_name)
@@ -100,10 +95,10 @@ async def register_tenant(data: TenantRegisterRequest, db: asyncpg.Connection) -
         data.admin_full_name
     )
 
-    # 7. Insert default notification settings for this tenant
     await db.execute(
         f"""
-        INSERT INTO "{schema_name}".notification_settings (event_code, in_app, sms_enabled, email_enabled)
+        INSERT INTO "{schema_name}".notification_settings
+            (event_code, in_app, sms_enabled, email_enabled)
         VALUES
             ('low_stock',           TRUE, TRUE,  TRUE),
             ('expiry_approaching',  TRUE, TRUE,  TRUE),
@@ -118,22 +113,43 @@ async def register_tenant(data: TenantRegisterRequest, db: asyncpg.Connection) -
         """
     )
 
-    # 8. Insert default kitchen settings
     await db.execute(
         f'INSERT INTO "{schema_name}".kitchen_settings DEFAULT VALUES'
     )
 
-    # 9. Insert default cash settings
     await db.execute(
         f'INSERT INTO "{schema_name}".cash_settings DEFAULT VALUES'
     )
 
-    # 10. Insert default HR settings
     await db.execute(
         f'INSERT INTO "{schema_name}".hr_settings DEFAULT VALUES'
     )
 
-    # 11. Send registration confirmation email to admin
+    # Create default outlet — represents the main business itself
+    outlet_type = "hotel" if data.business_type == "hotel" else "restaurant"
+
+    outlet = await db.fetchrow(
+        f"""
+        INSERT INTO "{schema_name}".outlets
+            (name, type, is_default, kitchen_mode)
+        VALUES ($1, $2, TRUE, 'single_printer')
+        RETURNING id
+        """,
+        data.business_name,
+        outlet_type,
+    )
+
+    outlet_id = outlet["id"]
+
+    # Create default billing settings for the default outlet
+    await db.execute(
+        f"""
+        INSERT INTO "{schema_name}".billing_settings (outlet_id)
+        VALUES ($1)
+        """,
+        outlet_id
+    )
+
     send_registration_confirmation_email(
         to_email=data.admin_email,
         full_name=data.admin_full_name,

@@ -18,7 +18,7 @@ async def reset_pool():
     await db_module.close_pool()
 
 
-# Clean inventory tables after every test 
+# Clean tables after every test 
 
 @pytest.fixture(autouse=True)
 async def clean_inventory():
@@ -32,43 +32,95 @@ async def clean_inventory():
     )
     try:
         for schema in [TENANT_SCHEMA, TENANT_SCHEMA_B]:
+            # Bills and payments
             for table in [
-                "po_items",
-                "purchase_orders",
-                "stock_deductions",
-                "stock_adjustments",
-                "stock_batches",
-                "suppliers",
+                "payments",
+                "bill_discounts",
+                "discount_approvals",
+                "credit_transactions",
+                "credit_accounts",
+                "bills",
             ]:
                 try:
                     await conn.execute(f'DELETE FROM "{schema}".{table}')
                 except Exception:
                     pass
+
+            # Orders, KOTs
+            for table in [
+                "stock_deductions",
+                "kots",
+                "order_items",
+                "order_status_log",
+                "orders",
+            ]:
+                try:
+                    await conn.execute(f'DELETE FROM "{schema}".{table}')
+                except Exception:
+                    pass
+
+            # Menu items and categories (test-created ones)
             try:
-                # Delete ingredients created by inventory tests only
+                await conn.execute(
+                    f'DELETE FROM "{schema}".item_ingredients'
+                )
+                await conn.execute(
+                    f'DELETE FROM "{schema}".menu_items'
+                )
+                await conn.execute(
+                    f'DELETE FROM "{schema}".menu_categories'
+                )
+            except Exception:
+                pass
+
+            # Tables and sections
+            for table in ["tables", "sections"]:
+                try:
+                    await conn.execute(f'DELETE FROM "{schema}".{table}')
+                except Exception:
+                    pass
+
+            # Inventory
+            for table in [
+                "po_items",
+                "purchase_orders",
+                "stock_adjustments",
+                "stock_batches",
+                "suppliers",
+                "ingredients",
+            ]:
+                try:
+                    await conn.execute(f'DELETE FROM "{schema}".{table}')
+                except Exception:
+                    pass
+
+            # Outlets — delete non-default only, keep billing settings for default
+            try:
                 await conn.execute(
                     f"""
-                    DELETE FROM "{schema}".item_ingredients
-                    WHERE ingredient_id IN (
-                        SELECT id FROM "{schema}".ingredients
-                        WHERE name LIKE 'Stock Test%' OR name LIKE 'PO Test%'
+                    DELETE FROM "{schema}".billing_settings
+                    WHERE outlet_id IN (
+                        SELECT id FROM "{schema}".outlets
+                        WHERE is_default = FALSE
                     )
                     """
                 )
                 await conn.execute(
                     f"""
-                    DELETE FROM "{schema}".ingredients
-                    WHERE name LIKE 'Stock Test%' OR name LIKE 'PO Test%'
+                    DELETE FROM "{schema}".outlets
+                    WHERE is_default = FALSE
+                    """
+                )
+                await conn.execute(
+                    f"""
+                    INSERT INTO "{schema}".billing_settings (outlet_id)
+                    SELECT id FROM "{schema}".outlets WHERE is_default = TRUE
+                    ON CONFLICT (outlet_id) DO NOTHING
                     """
                 )
             except Exception:
                 pass
-            try:
-                await conn.execute(
-                    f'UPDATE "{schema}".ingredients SET current_stock = 0'
-                )
-            except Exception:
-                pass
+
     finally:
         await conn.close()
 

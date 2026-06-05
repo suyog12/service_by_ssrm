@@ -18,7 +18,9 @@ def _generate_po_number() -> str:
     return f"PO-{suffix}"
 
 
-async def _fire_low_stock_alert(db, schema: str, ingredient_id: UUID):
+async def _fire_low_stock_alert(
+    db, schema: str, ingredient_id: UUID
+):
     ingredient = await db.fetchrow(
         f"""
         SELECT name, unit, current_stock, reorder_level
@@ -32,7 +34,6 @@ async def _fire_low_stock_alert(db, schema: str, ingredient_id: UUID):
     if Decimal(str(ingredient["current_stock"])) > Decimal(str(ingredient["reorder_level"])):
         return
 
-    # Get all admin users for this tenant
     tenant = await db.fetchrow(
         'SELECT id FROM core.tenants WHERE schema_name = $1', schema
     )
@@ -40,7 +41,10 @@ async def _fire_low_stock_alert(db, schema: str, ingredient_id: UUID):
         return
 
     admins = await db.fetch(
-        'SELECT id, email, full_name FROM core.users WHERE tenant_id = $1 AND is_admin = TRUE AND is_active = TRUE',
+        """
+        SELECT id, email, full_name FROM core.users
+        WHERE tenant_id = $1 AND is_admin = TRUE AND is_active = TRUE
+        """,
         tenant["id"]
     )
 
@@ -55,7 +59,8 @@ async def _fire_low_stock_alert(db, schema: str, ingredient_id: UUID):
         await db.execute(
             f"""
             INSERT INTO "{schema}".notifications
-                (user_id, event_code, title, body, reference_id, reference_type)
+                (user_id, event_code, title, body,
+                 reference_id, reference_type)
             VALUES ($1, 'inventory.low_stock', $2, $3, $4, 'ingredient')
             """,
             admin["id"], title, body, ingredient_id
@@ -72,10 +77,15 @@ async def _fire_low_stock_alert(db, schema: str, ingredient_id: UUID):
 
 # Suppliers 
 
-async def create_supplier(db, schema: str, data: dict) -> dict:
+async def create_supplier(
+    db, schema: str, outlet_id: UUID, data: dict
+) -> dict:
     existing = await db.fetchrow(
-        f'SELECT id FROM "{schema}".suppliers WHERE name = $1',
-        data["name"]
+        f"""
+        SELECT id FROM "{schema}".suppliers
+        WHERE name = $1 AND outlet_id = $2
+        """,
+        data["name"], outlet_id
     )
     if existing:
         raise HTTPException(400, "A supplier with this name already exists")
@@ -83,10 +93,12 @@ async def create_supplier(db, schema: str, data: dict) -> dict:
     row = await db.fetchrow(
         f"""
         INSERT INTO "{schema}".suppliers
-            (name, contact_person, phone, email, address, pan_number)
-        VALUES ($1, $2, $3, $4, $5, $6)
+            (outlet_id, name, contact_person, phone,
+             email, address, pan_number)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *
         """,
+        outlet_id,
         data["name"],
         data.get("contact_person"),
         data.get("phone"),
@@ -97,30 +109,50 @@ async def create_supplier(db, schema: str, data: dict) -> dict:
     return dict(row)
 
 
-async def list_suppliers(db, schema: str, active_only: bool = False) -> list[dict]:
+async def list_suppliers(
+    db, schema: str, outlet_id: UUID, active_only: bool = False
+) -> list[dict]:
     if active_only:
         rows = await db.fetch(
-            f'SELECT * FROM "{schema}".suppliers WHERE is_active = TRUE ORDER BY name'
+            f"""
+            SELECT * FROM "{schema}".suppliers
+            WHERE outlet_id = $1 AND is_active = TRUE
+            ORDER BY name
+            """,
+            outlet_id
         )
     else:
         rows = await db.fetch(
-            f'SELECT * FROM "{schema}".suppliers ORDER BY name'
+            f"""
+            SELECT * FROM "{schema}".suppliers
+            WHERE outlet_id = $1
+            ORDER BY name
+            """,
+            outlet_id
         )
     return [dict(r) for r in rows]
 
 
-async def get_supplier(db, schema: str, supplier_id: UUID) -> dict:
+async def get_supplier(
+    db, schema: str, outlet_id: UUID, supplier_id: UUID
+) -> dict:
     row = await db.fetchrow(
-        f'SELECT * FROM "{schema}".suppliers WHERE id = $1',
-        supplier_id
+        f"""
+        SELECT * FROM "{schema}".suppliers
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        supplier_id, outlet_id
     )
     if not row:
         raise HTTPException(404, "Supplier not found")
     return dict(row)
 
 
-async def update_supplier(db, schema: str, supplier_id: UUID, data: dict) -> dict:
-    await get_supplier(db, schema, supplier_id)
+async def update_supplier(
+    db, schema: str, outlet_id: UUID,
+    supplier_id: UUID, data: dict
+) -> dict:
+    await get_supplier(db, schema, outlet_id, supplier_id)
 
     fields = []
     values = []
@@ -133,7 +165,7 @@ async def update_supplier(db, schema: str, supplier_id: UUID, data: dict) -> dic
             idx += 1
 
     if not fields:
-        return await get_supplier(db, schema, supplier_id)
+        return await get_supplier(db, schema, outlet_id, supplier_id)
 
     values.append(supplier_id)
     await db.execute(
@@ -144,22 +176,27 @@ async def update_supplier(db, schema: str, supplier_id: UUID, data: dict) -> dic
         """,
         *values
     )
-    return await get_supplier(db, schema, supplier_id)
+    return await get_supplier(db, schema, outlet_id, supplier_id)
 
 
 # Stock Addition 
 
-async def add_stock(db, schema: str, data: dict) -> dict:
+async def add_stock(
+    db, schema: str, outlet_id: UUID, data: dict
+) -> dict:
     ingredient = await db.fetchrow(
-        f'SELECT id, name, unit, current_stock FROM "{schema}".ingredients WHERE id = $1',
-        data["ingredient_id"]
+        f"""
+        SELECT id, name, unit, current_stock
+        FROM "{schema}".ingredients
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        data["ingredient_id"], outlet_id
     )
     if not ingredient:
         raise HTTPException(404, "Ingredient not found")
 
     quantity = Decimal(str(data["quantity"]))
 
-    # Update cost_per_unit if provided
     if data.get("cost_per_unit") is not None:
         await db.execute(
             f"""
@@ -170,7 +207,6 @@ async def add_stock(db, schema: str, data: dict) -> dict:
             data["cost_per_unit"], data["ingredient_id"]
         )
 
-    # Create stock batch
     batch = await db.fetchrow(
         f"""
         INSERT INTO "{schema}".stock_batches
@@ -184,7 +220,6 @@ async def add_stock(db, schema: str, data: dict) -> dict:
         data.get("notes"),
     )
 
-    # Update current stock
     new_stock = Decimal(str(ingredient["current_stock"])) + quantity
     await db.execute(
         f"""
@@ -207,10 +242,17 @@ async def add_stock(db, schema: str, data: dict) -> dict:
 
 # Stock Adjustments 
 
-async def adjust_stock(db, schema: str, data: dict, adjusted_by: UUID) -> dict:
+async def adjust_stock(
+    db, schema: str, outlet_id: UUID,
+    data: dict, adjusted_by: UUID
+) -> dict:
     ingredient = await db.fetchrow(
-        f'SELECT id, name, unit, current_stock FROM "{schema}".ingredients WHERE id = $1',
-        data["ingredient_id"]
+        f"""
+        SELECT id, name, unit, current_stock
+        FROM "{schema}".ingredients
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        data["ingredient_id"], outlet_id
     )
     if not ingredient:
         raise HTTPException(404, "Ingredient not found")
@@ -223,7 +265,8 @@ async def adjust_stock(db, schema: str, data: dict, adjusted_by: UUID) -> dict:
         INSERT INTO "{schema}".stock_adjustments
             (ingredient_id, adjusted_by, previous_stock, new_stock, reason)
         VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, ingredient_id, adjusted_by, previous_stock, new_stock, reason, created_at
+        RETURNING id, ingredient_id, adjusted_by,
+                  previous_stock, new_stock, reason, created_at
         """,
         data["ingredient_id"],
         adjusted_by,
@@ -241,13 +284,15 @@ async def adjust_stock(db, schema: str, data: dict, adjusted_by: UUID) -> dict:
         new_stock, data["ingredient_id"]
     )
 
-    # Notify admins about the adjustment
     tenant = await db.fetchrow(
         'SELECT id FROM core.tenants WHERE schema_name = $1', schema
     )
     if tenant:
         admins = await db.fetch(
-            'SELECT id FROM core.users WHERE tenant_id = $1 AND is_admin = TRUE AND is_active = TRUE',
+            """
+            SELECT id FROM core.users
+            WHERE tenant_id = $1 AND is_admin = TRUE AND is_active = TRUE
+            """,
             tenant["id"]
         )
         title = f"Stock adjusted: {ingredient['name']}"
@@ -260,13 +305,13 @@ async def adjust_stock(db, schema: str, data: dict, adjusted_by: UUID) -> dict:
             await db.execute(
                 f"""
                 INSERT INTO "{schema}".notifications
-                    (user_id, event_code, title, body, reference_id, reference_type)
+                    (user_id, event_code, title, body,
+                     reference_id, reference_type)
                 VALUES ($1, 'inventory.stock_adjusted', $2, $3, $4, 'ingredient')
                 """,
                 admin["id"], title, body, data["ingredient_id"]
             )
 
-    # Check low stock after adjustment
     await _fire_low_stock_alert(db, schema, data["ingredient_id"])
 
     result = dict(row)
@@ -275,17 +320,20 @@ async def adjust_stock(db, schema: str, data: dict, adjusted_by: UUID) -> dict:
     return result
 
 
-async def list_stock_adjustments(db, schema: str, ingredient_id: UUID = None) -> list[dict]:
+async def list_stock_adjustments(
+    db, schema: str, outlet_id: UUID,
+    ingredient_id: UUID = None
+) -> list[dict]:
     if ingredient_id:
         rows = await db.fetch(
             f"""
             SELECT sa.*, i.name AS ingredient_name, i.unit
             FROM "{schema}".stock_adjustments sa
             JOIN "{schema}".ingredients i ON i.id = sa.ingredient_id
-            WHERE sa.ingredient_id = $1
+            WHERE sa.ingredient_id = $1 AND i.outlet_id = $2
             ORDER BY sa.created_at DESC
             """,
-            ingredient_id
+            ingredient_id, outlet_id
         )
     else:
         rows = await db.fetch(
@@ -293,39 +341,47 @@ async def list_stock_adjustments(db, schema: str, ingredient_id: UUID = None) ->
             SELECT sa.*, i.name AS ingredient_name, i.unit
             FROM "{schema}".stock_adjustments sa
             JOIN "{schema}".ingredients i ON i.id = sa.ingredient_id
+            WHERE i.outlet_id = $1
             ORDER BY sa.created_at DESC
-            """
+            """,
+            outlet_id
         )
     return [dict(r) for r in rows]
 
 
 # Reorder Alerts 
 
-async def get_reorder_alerts(db, schema: str) -> list[dict]:
+async def get_reorder_alerts(
+    db, schema: str, outlet_id: UUID
+) -> list[dict]:
     rows = await db.fetch(
         f"""
         SELECT id AS ingredient_id, name AS ingredient_name,
                unit, current_stock, reorder_level
         FROM "{schema}".ingredients
-        WHERE current_stock <= reorder_level
+        WHERE outlet_id = $1
+          AND current_stock <= reorder_level
           AND reorder_level > 0
         ORDER BY name
-        """
+        """,
+        outlet_id
     )
     return [dict(r) for r in rows]
 
 
 # Purchase Orders 
 
-async def _get_po_with_items(db, schema: str, po_id: UUID) -> dict:
+async def _get_po_with_items(
+    db, schema: str, outlet_id: UUID, po_id: UUID
+) -> dict:
     po = await db.fetchrow(
         f"""
         SELECT po.*, s.name AS supplier_name
         FROM "{schema}".purchase_orders po
         JOIN "{schema}".suppliers s ON s.id = po.supplier_id
-        WHERE po.id = $1
+        WHERE po.id = $1 AND po.outlet_id = $2
         """,
-        po_id
+        po_id, outlet_id
     )
     if not po:
         raise HTTPException(404, "Purchase order not found")
@@ -347,11 +403,15 @@ async def _get_po_with_items(db, schema: str, po_id: UUID) -> dict:
 
 
 async def create_purchase_order(
-    db, schema: str, data: dict, raised_by: UUID
+    db, schema: str, outlet_id: UUID,
+    data: dict, raised_by: UUID
 ) -> dict:
     supplier = await db.fetchrow(
-        f'SELECT id, is_active FROM "{schema}".suppliers WHERE id = $1',
-        data["supplier_id"]
+        f"""
+        SELECT id, is_active FROM "{schema}".suppliers
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        data["supplier_id"], outlet_id
     )
     if not supplier:
         raise HTTPException(404, "Supplier not found")
@@ -370,34 +430,45 @@ async def create_purchase_order(
     row = await db.fetchrow(
         f"""
         INSERT INTO "{schema}".purchase_orders
-            (supplier_id, po_number, raised_by, expected_date, notes)
-        VALUES ($1, $2, $3, $4, $5)
+            (outlet_id, supplier_id, po_number, raised_by,
+             expected_date, notes)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id
         """,
+        outlet_id,
         data["supplier_id"],
         po_number,
         raised_by,
         data.get("expected_date"),
         data.get("notes"),
     )
-    return await _get_po_with_items(db, schema, row["id"])
+    return await _get_po_with_items(db, schema, outlet_id, row["id"])
 
 
 async def add_po_item(
-    db, schema: str, po_id: UUID, data: dict
+    db, schema: str, outlet_id: UUID,
+    po_id: UUID, data: dict
 ) -> dict:
     po = await db.fetchrow(
-        f'SELECT id, status FROM "{schema}".purchase_orders WHERE id = $1',
-        po_id
+        f"""
+        SELECT id, status FROM "{schema}".purchase_orders
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        po_id, outlet_id
     )
     if not po:
         raise HTTPException(404, "Purchase order not found")
     if po["status"] not in ("draft",):
-        raise HTTPException(400, "Can only add items to a draft purchase order")
+        raise HTTPException(
+            400, "Can only add items to a draft purchase order"
+        )
 
     ingredient = await db.fetchrow(
-        f'SELECT id FROM "{schema}".ingredients WHERE id = $1',
-        data["ingredient_id"]
+        f"""
+        SELECT id FROM "{schema}".ingredients
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        data["ingredient_id"], outlet_id
     )
     if not ingredient:
         raise HTTPException(404, "Ingredient not found")
@@ -410,7 +481,9 @@ async def add_po_item(
         po_id, data["ingredient_id"]
     )
     if existing_item:
-        raise HTTPException(400, "This ingredient is already on the purchase order")
+        raise HTTPException(
+            400, "This ingredient is already on the purchase order"
+        )
 
     await db.execute(
         f"""
@@ -426,7 +499,7 @@ async def add_po_item(
     )
 
     await _recalculate_po_total(db, schema, po_id)
-    return await _get_po_with_items(db, schema, po_id)
+    return await _get_po_with_items(db, schema, outlet_id, po_id)
 
 
 async def _recalculate_po_total(db, schema: str, po_id: UUID):
@@ -448,17 +521,19 @@ async def _recalculate_po_total(db, schema: str, po_id: UUID):
     )
 
 
-async def list_purchase_orders(db, schema: str, status: str = None) -> list[dict]:
+async def list_purchase_orders(
+    db, schema: str, outlet_id: UUID, status: str = None
+) -> list[dict]:
     if status:
         rows = await db.fetch(
             f"""
             SELECT po.*, s.name AS supplier_name
             FROM "{schema}".purchase_orders po
             JOIN "{schema}".suppliers s ON s.id = po.supplier_id
-            WHERE po.status = $1
+            WHERE po.outlet_id = $1 AND po.status = $2
             ORDER BY po.created_at DESC
             """,
-            status
+            outlet_id, status
         )
     else:
         rows = await db.fetch(
@@ -466,8 +541,10 @@ async def list_purchase_orders(db, schema: str, status: str = None) -> list[dict
             SELECT po.*, s.name AS supplier_name
             FROM "{schema}".purchase_orders po
             JOIN "{schema}".suppliers s ON s.id = po.supplier_id
+            WHERE po.outlet_id = $1
             ORDER BY po.created_at DESC
-            """
+            """,
+            outlet_id
         )
     result = []
     for row in rows:
@@ -486,16 +563,22 @@ async def list_purchase_orders(db, schema: str, status: str = None) -> list[dict
     return result
 
 
-async def get_purchase_order(db, schema: str, po_id: UUID) -> dict:
-    return await _get_po_with_items(db, schema, po_id)
+async def get_purchase_order(
+    db, schema: str, outlet_id: UUID, po_id: UUID
+) -> dict:
+    return await _get_po_with_items(db, schema, outlet_id, po_id)
 
 
 async def update_po_status(
-    db, schema: str, po_id: UUID, new_status: str, user_id: UUID
+    db, schema: str, outlet_id: UUID,
+    po_id: UUID, new_status: str, user_id: UUID
 ) -> dict:
     po = await db.fetchrow(
-        f'SELECT id, status FROM "{schema}".purchase_orders WHERE id = $1',
-        po_id
+        f"""
+        SELECT id, status FROM "{schema}".purchase_orders
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        po_id, outlet_id
     )
     if not po:
         raise HTTPException(404, "Purchase order not found")
@@ -513,8 +596,7 @@ async def update_po_status(
     allowed = valid_transitions.get(current, ())
     if new_status not in allowed:
         raise HTTPException(
-            400,
-            f"Cannot move from '{current}' to '{new_status}'"
+            400, f"Cannot move from '{current}' to '{new_status}'"
         )
 
     update_fields = "status = $1, updated_at = NOW()"
@@ -539,21 +621,26 @@ async def update_po_status(
         """,
         *values
     )
-    return await _get_po_with_items(db, schema, po_id)
+    return await _get_po_with_items(db, schema, outlet_id, po_id)
 
 
 async def receive_purchase_order(
-    db, schema: str, po_id: UUID, items: list[dict], received_by: UUID
+    db, schema: str, outlet_id: UUID,
+    po_id: UUID, items: list[dict], received_by: UUID
 ) -> dict:
     po = await db.fetchrow(
-        f'SELECT id, status FROM "{schema}".purchase_orders WHERE id = $1',
-        po_id
+        f"""
+        SELECT id, status FROM "{schema}".purchase_orders
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        po_id, outlet_id
     )
     if not po:
         raise HTTPException(404, "Purchase order not found")
     if po["status"] not in ("approved", "sent", "partial"):
         raise HTTPException(
-            400, "Can only receive approved, sent, or partially received orders"
+            400,
+            "Can only receive approved, sent, or partially received orders"
         )
 
     for item_data in items:
@@ -568,7 +655,8 @@ async def receive_purchase_order(
         )
         if not po_item:
             raise HTTPException(
-                400, f"PO item {item_data['po_item_id']} not found on this order"
+                400,
+                f"PO item {item_data['po_item_id']} not found on this order"
             )
 
         received_qty = Decimal(str(item_data["received_qty"]))
@@ -585,7 +673,6 @@ async def receive_purchase_order(
         )
 
         if received_qty > 0:
-            # Create stock batch
             await db.execute(
                 f"""
                 INSERT INTO "{schema}".stock_batches
@@ -597,7 +684,6 @@ async def receive_purchase_order(
                 item_data.get("expiry_date"),
             )
 
-            # Update current stock
             await db.execute(
                 f"""
                 UPDATE "{schema}".ingredients
@@ -607,10 +693,8 @@ async def receive_purchase_order(
                 received_qty, po_item["ing_id"]
             )
 
-            # Check low stock
             await _fire_low_stock_alert(db, schema, po_item["ing_id"])
 
-    # Determine new PO status
     all_items = await db.fetch(
         f"""
         SELECT ordered_qty, received_qty
@@ -645,4 +729,4 @@ async def receive_purchase_order(
         new_status, po_id
     )
 
-    return await _get_po_with_items(db, schema, po_id)
+    return await _get_po_with_items(db, schema, outlet_id, po_id)

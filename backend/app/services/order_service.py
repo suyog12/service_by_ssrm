@@ -11,15 +11,18 @@ def _generate_order_number() -> str:
 
 
 # Orders 
+
 async def create_order(
-    db, schema: str, data: dict, taken_by: UUID
+    db, schema: str, outlet_id: UUID, data: dict, taken_by: UUID
 ) -> dict:
-    # Validate table if dine_in
     table_number = None
     if data.get("table_id"):
         table = await db.fetchrow(
-            f'SELECT id, table_number, status FROM "{schema}".tables WHERE id = $1',
-            data["table_id"]
+            f"""
+            SELECT id, table_number, status FROM "{schema}".tables
+            WHERE id = $1 AND outlet_id = $2
+            """,
+            data["table_id"], outlet_id
         )
         if not table:
             raise HTTPException(400, "Table not found")
@@ -27,13 +30,15 @@ async def create_order(
             raise HTTPException(400, "Table is already occupied")
         table_number = table["table_number"]
 
-        # Mark table as occupied
         await db.execute(
-            f'UPDATE "{schema}".tables SET status = $1, updated_at = NOW() WHERE id = $2',
+            f"""
+            UPDATE "{schema}".tables
+            SET status = $1, updated_at = NOW()
+            WHERE id = $2
+            """,
             "occupied", data["table_id"]
         )
 
-    # Generate unique order number
     for _ in range(10):
         order_number = _generate_order_number()
         existing = await db.fetchrow(
@@ -46,10 +51,13 @@ async def create_order(
     row = await db.fetchrow(
         f"""
         INSERT INTO "{schema}".orders
-            (order_number, order_type, table_id, customer_id, taken_by, notes)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, order_number, order_type, status, table_id, notes
+            (outlet_id, order_number, order_type, table_id,
+             customer_id, taken_by, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, order_number, order_type, status,
+                  table_id, notes
         """,
+        outlet_id,
         order_number,
         data.get("order_type", "dine_in"),
         data.get("table_id"),
@@ -63,7 +71,9 @@ async def create_order(
     return result
 
 
-async def list_orders(db, schema: str, status: str = None) -> list[dict]:
+async def list_orders(
+    db, schema: str, outlet_id: UUID, status: str = None
+) -> list[dict]:
     if status:
         rows = await db.fetch(
             f"""
@@ -73,11 +83,11 @@ async def list_orders(db, schema: str, status: str = None) -> list[dict]:
             FROM "{schema}".orders o
             LEFT JOIN "{schema}".tables t ON t.id = o.table_id
             LEFT JOIN "{schema}".order_items oi ON oi.order_id = o.id
-            WHERE o.status = $1
+            WHERE o.outlet_id = $1 AND o.status = $2
             GROUP BY o.id, t.table_number
             ORDER BY o.created_at DESC
             """,
-            status
+            outlet_id, status
         )
     else:
         rows = await db.fetch(
@@ -88,14 +98,18 @@ async def list_orders(db, schema: str, status: str = None) -> list[dict]:
             FROM "{schema}".orders o
             LEFT JOIN "{schema}".tables t ON t.id = o.table_id
             LEFT JOIN "{schema}".order_items oi ON oi.order_id = o.id
+            WHERE o.outlet_id = $1
             GROUP BY o.id, t.table_number
             ORDER BY o.created_at DESC
-            """
+            """,
+            outlet_id
         )
     return [dict(r) for r in rows]
 
 
-async def get_order(db, schema: str, order_id: UUID) -> dict:
+async def get_order(
+    db, schema: str, outlet_id: UUID, order_id: UUID
+) -> dict:
     row = await db.fetchrow(
         f"""
         SELECT o.id, o.order_number, o.order_type, o.status,
@@ -104,10 +118,10 @@ async def get_order(db, schema: str, order_id: UUID) -> dict:
         FROM "{schema}".orders o
         LEFT JOIN "{schema}".tables t ON t.id = o.table_id
         LEFT JOIN "{schema}".order_items oi ON oi.order_id = o.id
-        WHERE o.id = $1
+        WHERE o.id = $1 AND o.outlet_id = $2
         GROUP BY o.id, t.table_number
         """,
-        order_id
+        order_id, outlet_id
     )
     if not row:
         raise HTTPException(404, "Order not found")
@@ -115,21 +129,23 @@ async def get_order(db, schema: str, order_id: UUID) -> dict:
 
 
 async def update_order_status(
-    db, schema: str, order_id: UUID, new_status: str, changed_by: UUID
+    db, schema: str, outlet_id: UUID,
+    order_id: UUID, new_status: str, changed_by: UUID
 ) -> dict:
     order = await db.fetchrow(
-        f'SELECT id, status, table_id FROM "{schema}".orders WHERE id = $1',
-        order_id
+        f"""
+        SELECT id, status, table_id FROM "{schema}".orders
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        order_id, outlet_id
     )
     if not order:
         raise HTTPException(404, "Order not found")
-
     if order["status"] == "cancelled":
         raise HTTPException(400, "Cannot update a cancelled order")
     if order["status"] == "billed":
         raise HTTPException(400, "Cannot update a billed order")
 
-    # Log status change
     await db.execute(
         f"""
         INSERT INTO "{schema}".order_status_log
@@ -148,23 +164,31 @@ async def update_order_status(
         new_status, order_id
     )
 
-    # Free table if order is cancelled or billed
     if new_status in ("cancelled", "billed") and order["table_id"]:
         await db.execute(
-            f'UPDATE "{schema}".tables SET status = $1, updated_at = NOW() WHERE id = $2',
+            f"""
+            UPDATE "{schema}".tables
+            SET status = $1, updated_at = NOW()
+            WHERE id = $2
+            """,
             "available", order["table_id"]
         )
 
-    return await get_order(db, schema, order_id)
+    return await get_order(db, schema, outlet_id, order_id)
 
 
 # Order items 
+
 async def add_item_to_order(
-    db, schema: str, order_id: UUID, data: dict
+    db, schema: str, outlet_id: UUID,
+    order_id: UUID, data: dict
 ) -> dict:
     order = await db.fetchrow(
-        f'SELECT id, status FROM "{schema}".orders WHERE id = $1',
-        order_id
+        f"""
+        SELECT id, status FROM "{schema}".orders
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        order_id, outlet_id
     )
     if not order:
         raise HTTPException(404, "Order not found")
@@ -175,9 +199,9 @@ async def add_item_to_order(
         f"""
         SELECT id, name, price, station, is_available
         FROM "{schema}".menu_items
-        WHERE id = $1
+        WHERE id = $1 AND outlet_id = $2
         """,
-        data["menu_item_id"]
+        data["menu_item_id"], outlet_id
     )
     if not menu_item:
         raise HTTPException(400, "Menu item not found")
@@ -203,20 +227,28 @@ async def add_item_to_order(
     result = dict(row)
     result["item_name"] = menu_item["name"]
 
-    # Move order to in_progress if it was open
     if order["status"] == "open":
         await db.execute(
-            f'UPDATE "{schema}".orders SET status = $1, updated_at = NOW() WHERE id = $2',
+            f"""
+            UPDATE "{schema}".orders
+            SET status = $1, updated_at = NOW()
+            WHERE id = $2
+            """,
             "in_progress", order_id
         )
 
     return result
 
 
-async def list_order_items(db, schema: str, order_id: UUID) -> list[dict]:
+async def list_order_items(
+    db, schema: str, outlet_id: UUID, order_id: UUID
+) -> list[dict]:
     order = await db.fetchrow(
-        f'SELECT id FROM "{schema}".orders WHERE id = $1',
-        order_id
+        f"""
+        SELECT id FROM "{schema}".orders
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        order_id, outlet_id
     )
     if not order:
         raise HTTPException(404, "Order not found")
@@ -237,7 +269,8 @@ async def list_order_items(db, schema: str, order_id: UUID) -> list[dict]:
 
 
 async def update_item_status(
-    db, schema: str, order_id: UUID, item_id: UUID, new_status: str
+    db, schema: str, outlet_id: UUID,
+    order_id: UUID, item_id: UUID, new_status: str
 ) -> dict:
     item = await db.fetchrow(
         f"""
@@ -255,6 +288,17 @@ async def update_item_status(
     if item["status"] == "cancelled":
         raise HTTPException(400, "Cannot update a cancelled item")
 
+    # Verify order belongs to outlet
+    order = await db.fetchrow(
+        f"""
+        SELECT id FROM "{schema}".orders
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        order_id, outlet_id
+    )
+    if not order:
+        raise HTTPException(404, "Order not found")
+
     await db.execute(
         f"""
         UPDATE "{schema}".order_items
@@ -264,9 +308,10 @@ async def update_item_status(
         new_status, item_id
     )
 
-    # Deduct stock when item is served
     if new_status == "served":
-        await _deduct_stock(db, schema, item["menu_item_id"], item["quantity"], item_id)
+        await _deduct_stock(
+            db, schema, item["menu_item_id"], item["quantity"], item_id
+        )
 
     result = dict(item)
     result["status"] = new_status
@@ -275,13 +320,17 @@ async def update_item_status(
 
 
 async def cancel_order_item(
-    db, schema: str, order_id: UUID, item_id: UUID
+    db, schema: str, outlet_id: UUID,
+    order_id: UUID, item_id: UUID
 ) -> dict:
-    return await update_item_status(db, schema, order_id, item_id, "cancelled")
+    return await update_item_status(
+        db, schema, outlet_id, order_id, item_id, "cancelled"
+    )
 
 
 async def _deduct_stock(
-    db, schema: str, menu_item_id: UUID, quantity: int, order_item_id: UUID
+    db, schema: str, menu_item_id: UUID,
+    quantity: int, order_item_id: UUID
 ) -> None:
     ingredients = await db.fetch(
         f"""

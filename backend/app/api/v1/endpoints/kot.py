@@ -10,14 +10,21 @@ from app.services import kot_service
 router = APIRouter(tags=["KOT"])
 
 
-@router.post("/orders/{order_id}/kot", response_model=list[KOTResponse], status_code=201)
+@router.post(
+    "/orders/{order_id}/kot",
+    response_model=list[KOTResponse],
+    status_code=201
+)
 async def generate_kots(
     order_id: UUID,
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await kot_service.generate_kots_for_order(db, schema, order_id)
+        return await kot_service.generate_kots_for_order(
+            db, schema, outlet_id, order_id
+        )
 
 
 @router.get("/orders/{order_id}/kot", response_model=list[KOTResponse])
@@ -26,8 +33,11 @@ async def get_order_kots(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await kot_service.get_order_kots(db, schema, order_id)
+        return await kot_service.get_order_kots(
+            db, schema, outlet_id, order_id
+        )
 
 
 @router.get("/kots/pending", response_model=list[dict])
@@ -35,8 +45,9 @@ async def get_pending_kots(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await kot_service.get_pending_kots(db, schema)
+        return await kot_service.get_pending_kots(db, schema, outlet_id)
 
 
 @router.patch("/kots/{kot_id}/assign", response_model=KOTResponse)
@@ -46,8 +57,11 @@ async def assign_kot(
     current_user: dict = Depends(get_current_admin),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await kot_service.assign_kot(db, schema, kot_id, body.assigned_to)
+        return await kot_service.assign_kot(
+            db, schema, outlet_id, kot_id, body.assigned_to
+        )
 
 
 @router.patch("/kots/{kot_id}/print", response_model=KOTResponse)
@@ -56,8 +70,11 @@ async def mark_printed(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await kot_service.mark_kot_printed(db, schema, kot_id)
+        return await kot_service.mark_kot_printed(
+            db, schema, outlet_id, kot_id
+        )
 
 
 @router.get("/kots/{kot_id}/html", response_class=HTMLResponse)
@@ -66,5 +83,8 @@ async def get_kot_html(
     current_user: dict = Depends(get_current_user),
 ):
     schema = current_user["schema_name"]
+    outlet_id = current_user["outlet_id"]
     async for db in get_tenant_db(schema):
-        return await kot_service.get_kot_html(db, schema, kot_id)
+        return await kot_service.get_kot_html(
+            db, schema, outlet_id, kot_id
+        )

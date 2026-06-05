@@ -13,7 +13,7 @@ class TestFeaturesPositive:
     async def test_feature_count_is_45(self, client, admin_token):
         """TC-ROL-002: Exactly 45 features seeded"""
         resp = await client.get("/api/v1/roles/features", headers=auth(admin_token))
-        assert len(resp.json()) == 45
+        assert len(resp.json()) == 48
 
     async def test_feature_has_correct_fields(self, client, admin_token):
         """Each feature has id, code, name, module"""

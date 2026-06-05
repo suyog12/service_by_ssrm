@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from uuid import UUID
 from typing import Optional
+
 from app.core.dependencies import get_db, get_current_user, require_admin
 from app.schemas.inventory import (
     SupplierCreate, SupplierUpdate, SupplierResponse,
@@ -23,7 +24,8 @@ async def create_supplier(
     current_user=Depends(require_admin),
 ):
     return await inventory_service.create_supplier(
-        db, current_user["schema_name"], data.model_dump()
+        db, current_user["schema_name"],
+        current_user["outlet_id"], data.model_dump()
     )
 
 
@@ -34,7 +36,8 @@ async def list_suppliers(
     current_user=Depends(get_current_user),
 ):
     return await inventory_service.list_suppliers(
-        db, current_user["schema_name"], active_only
+        db, current_user["schema_name"],
+        current_user["outlet_id"], active_only
     )
 
 
@@ -45,7 +48,8 @@ async def get_supplier(
     current_user=Depends(get_current_user),
 ):
     return await inventory_service.get_supplier(
-        db, current_user["schema_name"], supplier_id
+        db, current_user["schema_name"],
+        current_user["outlet_id"], supplier_id
     )
 
 
@@ -57,7 +61,8 @@ async def update_supplier(
     current_user=Depends(require_admin),
 ):
     return await inventory_service.update_supplier(
-        db, current_user["schema_name"], supplier_id,
+        db, current_user["schema_name"],
+        current_user["outlet_id"], supplier_id,
         data.model_dump(exclude_none=True)
     )
 
@@ -71,7 +76,8 @@ async def add_stock(
     current_user=Depends(require_admin),
 ):
     return await inventory_service.add_stock(
-        db, current_user["schema_name"], data.model_dump()
+        db, current_user["schema_name"],
+        current_user["outlet_id"], data.model_dump()
     )
 
 
@@ -82,7 +88,8 @@ async def adjust_stock(
     current_user=Depends(require_admin),
 ):
     return await inventory_service.adjust_stock(
-        db, current_user["schema_name"], data.model_dump(),
+        db, current_user["schema_name"],
+        current_user["outlet_id"], data.model_dump(),
         current_user["user_id"]
     )
 
@@ -94,7 +101,8 @@ async def list_adjustments(
     current_user=Depends(require_admin),
 ):
     return await inventory_service.list_stock_adjustments(
-        db, current_user["schema_name"], ingredient_id
+        db, current_user["schema_name"],
+        current_user["outlet_id"], ingredient_id
     )
 
 
@@ -104,7 +112,8 @@ async def reorder_alerts(
     current_user=Depends(require_admin),
 ):
     return await inventory_service.get_reorder_alerts(
-        db, current_user["schema_name"]
+        db, current_user["schema_name"],
+        current_user["outlet_id"]
     )
 
 
@@ -117,7 +126,8 @@ async def create_purchase_order(
     current_user=Depends(require_admin),
 ):
     return await inventory_service.create_purchase_order(
-        db, current_user["schema_name"], data.model_dump(),
+        db, current_user["schema_name"],
+        current_user["outlet_id"], data.model_dump(),
         current_user["user_id"]
     )
 
@@ -129,7 +139,8 @@ async def list_purchase_orders(
     current_user=Depends(require_admin),
 ):
     return await inventory_service.list_purchase_orders(
-        db, current_user["schema_name"], status
+        db, current_user["schema_name"],
+        current_user["outlet_id"], status
     )
 
 
@@ -140,7 +151,8 @@ async def get_purchase_order(
     current_user=Depends(require_admin),
 ):
     return await inventory_service.get_purchase_order(
-        db, current_user["schema_name"], po_id
+        db, current_user["schema_name"],
+        current_user["outlet_id"], po_id
     )
 
 
@@ -152,7 +164,8 @@ async def add_po_item(
     current_user=Depends(require_admin),
 ):
     return await inventory_service.add_po_item(
-        db, current_user["schema_name"], po_id, data.model_dump()
+        db, current_user["schema_name"],
+        current_user["outlet_id"], po_id, data.model_dump()
     )
 
 
@@ -164,7 +177,8 @@ async def update_po_status(
     current_user=Depends(require_admin),
 ):
     return await inventory_service.update_po_status(
-        db, current_user["schema_name"], po_id, status,
+        db, current_user["schema_name"],
+        current_user["outlet_id"], po_id, status,
         current_user["user_id"]
     )
 
@@ -177,7 +191,8 @@ async def receive_purchase_order(
     current_user=Depends(require_admin),
 ):
     return await inventory_service.receive_purchase_order(
-        db, current_user["schema_name"], po_id,
+        db, current_user["schema_name"],
+        current_user["outlet_id"], po_id,
         [i.model_dump() for i in items],
         current_user["user_id"]
     )

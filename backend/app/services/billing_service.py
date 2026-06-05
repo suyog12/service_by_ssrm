@@ -1,10 +1,9 @@
 from uuid import UUID
 from fastapi import HTTPException
-from fastapi.responses import HTMLResponse
 from decimal import Decimal
 import secrets
 import string
-from datetime import datetime, timezone
+from datetime import datetime
 from collections import defaultdict
 
 
@@ -14,24 +13,31 @@ def _generate_bill_number() -> str:
     return f"BILL-{suffix}"
 
 
-# ── Billing Settings ──────────────────────────────────────────────────────────
+# Billing Settings 
 
-async def get_or_create_billing_settings(db, schema: str) -> dict:
+async def get_or_create_billing_settings(
+    db, schema: str, outlet_id: UUID
+) -> dict:
     row = await db.fetchrow(
-        f'SELECT * FROM "{schema}".billing_settings LIMIT 1'
+        f'SELECT * FROM "{schema}".billing_settings WHERE outlet_id = $1',
+        outlet_id
     )
     if not row:
         row = await db.fetchrow(
             f"""
-            INSERT INTO "{schema}".billing_settings DEFAULT VALUES
+            INSERT INTO "{schema}".billing_settings (outlet_id)
+            VALUES ($1)
             RETURNING *
-            """
+            """,
+            outlet_id
         )
     return dict(row)
 
 
-async def update_billing_settings(db, schema: str, data: dict) -> dict:
-    settings = await get_or_create_billing_settings(db, schema)
+async def update_billing_settings(
+    db, schema: str, outlet_id: UUID, data: dict
+) -> dict:
+    settings = await get_or_create_billing_settings(db, schema, outlet_id)
     settings_id = settings["id"]
 
     fields = []
@@ -61,16 +67,20 @@ async def update_billing_settings(db, schema: str, data: dict) -> dict:
     return dict(row)
 
 
-# ── Bill Generation ───────────────────────────────────────────────────────────
+# Bill Generation 
 
 async def generate_bill(
-    db, schema: str, data: dict, generated_by: UUID
+    db, schema: str, outlet_id: UUID, data: dict, generated_by: UUID
 ) -> dict:
     order_id = data["order_id"]
 
     order = await db.fetchrow(
-        f'SELECT id, status, order_number FROM "{schema}".orders WHERE id = $1',
-        order_id
+        f"""
+        SELECT id, status, order_number
+        FROM "{schema}".orders
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        order_id, outlet_id
     )
     if not order:
         raise HTTPException(404, "Order not found")
@@ -87,9 +97,8 @@ async def generate_bill(
     if existing:
         raise HTTPException(400, "An active bill already exists for this order")
 
-    settings = await get_or_create_billing_settings(db, schema)
+    settings = await get_or_create_billing_settings(db, schema, outlet_id)
 
-    # Pull tenant VAT registration to decide whether to apply VAT
     tenant = await db.fetchrow(
         'SELECT vat_registered, vat_pct FROM core.tenants WHERE schema_name = $1',
         schema
@@ -114,7 +123,6 @@ async def generate_bill(
         for item in items
     )
 
-    # VAT — only apply if tenant is VAT registered
     vat_pct = Decimal(str(settings["vat_pct"]))
     vat_mode = settings["vat_mode"]
     if tenant_vat_registered:
@@ -126,7 +134,6 @@ async def generate_bill(
         vat_amt = Decimal("0.00")
         vat_pct = Decimal("0.00")
 
-    # Service charge
     sc_pct = Decimal(str(settings["service_charge_pct"]))
     sc_mode = settings["service_charge_mode"]
     if sc_mode == "exclusive":
@@ -134,7 +141,6 @@ async def generate_bill(
     else:
         sc_amt = (subtotal * sc_pct / (100 + sc_pct)).quantize(Decimal("0.01"))
 
-    # Total
     total = subtotal
     if vat_mode == "exclusive" and tenant_vat_registered:
         total += vat_amt
@@ -153,17 +159,18 @@ async def generate_bill(
     row = await db.fetchrow(
         f"""
         INSERT INTO "{schema}".bills
-            (bill_number, order_id, customer_id, credit_account_id,
+            (outlet_id, bill_number, order_id, customer_id, credit_account_id,
              is_corporate, corporate_name, corporate_pan,
              subtotal, service_charge_pct, service_charge_amt,
              vat_pct, vat_amt, total_amount, generated_by)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
         RETURNING id, bill_number, order_id, customer_id, credit_account_id,
                   is_corporate, corporate_name, corporate_pan,
                   subtotal, service_charge_pct, service_charge_amt,
                   vat_pct, vat_amt, discount_amt, total_amount,
                   status, generated_by, created_at
         """,
+        outlet_id,
         bill_number,
         order_id,
         data.get("customer_id"),
@@ -187,7 +194,9 @@ async def generate_bill(
     return result
 
 
-async def get_bill(db, schema: str, bill_id: UUID) -> dict:
+async def get_bill(
+    db, schema: str, outlet_id: UUID, bill_id: UUID
+) -> dict:
     row = await db.fetchrow(
         f"""
         SELECT id, bill_number, order_id, customer_id, credit_account_id,
@@ -196,9 +205,9 @@ async def get_bill(db, schema: str, bill_id: UUID) -> dict:
                vat_pct, vat_amt, discount_amt, total_amount,
                status, generated_by, created_at
         FROM "{schema}".bills
-        WHERE id = $1
+        WHERE id = $1 AND outlet_id = $2
         """,
-        bill_id
+        bill_id, outlet_id
     )
     if not row:
         raise HTTPException(404, "Bill not found")
@@ -211,13 +220,15 @@ async def get_bill(db, schema: str, bill_id: UUID) -> dict:
     else:
         result["items"] = []
 
-    settings = await get_or_create_billing_settings(db, schema)
+    settings = await get_or_create_billing_settings(db, schema, outlet_id)
     result["qr_type"] = settings["qr_type"]
     result["qr_image_url"] = settings["qr_image_url"]
     return result
 
 
-async def list_bills(db, schema: str, status: str = None) -> list[dict]:
+async def list_bills(
+    db, schema: str, outlet_id: UUID, status: str = None
+) -> list[dict]:
     if status:
         rows = await db.fetch(
             f"""
@@ -226,10 +237,10 @@ async def list_bills(db, schema: str, status: str = None) -> list[dict]:
                    service_charge_amt, vat_amt, discount_amt, total_amount,
                    status, generated_by, created_at
             FROM "{schema}".bills
-            WHERE status = $1
+            WHERE outlet_id = $1 AND status = $2
             ORDER BY created_at DESC
             """,
-            status
+            outlet_id, status
         )
     else:
         rows = await db.fetch(
@@ -239,18 +250,25 @@ async def list_bills(db, schema: str, status: str = None) -> list[dict]:
                    service_charge_amt, vat_amt, discount_amt, total_amount,
                    status, generated_by, created_at
             FROM "{schema}".bills
+            WHERE outlet_id = $1
             ORDER BY created_at DESC
-            """
+            """,
+            outlet_id
         )
     return [dict(r) for r in rows]
 
 
 async def apply_discount(
-    db, schema: str, bill_id: UUID, data: dict, applied_by: UUID
+    db, schema: str, outlet_id: UUID, bill_id: UUID,
+    data: dict, applied_by: UUID
 ) -> dict:
     bill = await db.fetchrow(
-        f'SELECT id, status, order_id, subtotal FROM "{schema}".bills WHERE id = $1',
-        bill_id
+        f"""
+        SELECT id, status, order_id, subtotal
+        FROM "{schema}".bills
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        bill_id, outlet_id
     )
     if not bill:
         raise HTTPException(404, "Bill not found")
@@ -278,7 +296,9 @@ async def apply_discount(
             """,
             bill["order_id"], category_id
         )
-        discount_amt = (Decimal(str(cat_total)) * discount_pct / 100).quantize(Decimal("0.01"))
+        discount_amt = (
+            Decimal(str(cat_total)) * discount_pct / 100
+        ).quantize(Decimal("0.01"))
     elif discount_level == "item":
         order_item_id = data.get("order_item_id")
         if not order_item_id:
@@ -314,7 +334,10 @@ async def apply_discount(
     )
 
     total_discount = await db.fetchval(
-        f'SELECT COALESCE(SUM(discount_amt), 0) FROM "{schema}".bill_discounts WHERE bill_id = $1',
+        f"""
+        SELECT COALESCE(SUM(discount_amt), 0)
+        FROM "{schema}".bill_discounts WHERE bill_id = $1
+        """,
         bill_id
     )
 
@@ -329,18 +352,20 @@ async def apply_discount(
         total_discount, bill_id
     )
 
-    return await get_bill(db, schema, bill_id)
+    return await get_bill(db, schema, outlet_id, bill_id)
 
 
 async def process_payment(
-    db, schema: str, bill_id: UUID, data: dict, processed_by: UUID
+    db, schema: str, outlet_id: UUID, bill_id: UUID,
+    data: dict, processed_by: UUID
 ) -> dict:
     bill = await db.fetchrow(
         f"""
         SELECT id, status, total_amount, credit_account_id
-        FROM "{schema}".bills WHERE id = $1
+        FROM "{schema}".bills
+        WHERE id = $1 AND outlet_id = $2
         """,
-        bill_id
+        bill_id, outlet_id
     )
     if not bill:
         raise HTTPException(404, "Bill not found")
@@ -367,7 +392,10 @@ async def process_payment(
         if not account["is_active"]:
             raise HTTPException(400, "Credit account is inactive")
 
-        new_balance = Decimal(str(account["current_balance"])) + Decimal(str(bill["total_amount"]))
+        new_balance = (
+            Decimal(str(account["current_balance"])) +
+            Decimal(str(bill["total_amount"]))
+        )
         if new_balance > Decimal(str(account["credit_limit"])):
             raise HTTPException(
                 400,
@@ -477,15 +505,19 @@ async def process_payment(
                         order_row["table_id"]
                     )
 
-    return await get_bill(db, schema, bill_id)
+    return await get_bill(db, schema, outlet_id, bill_id)
 
 
 async def void_bill(
-    db, schema: str, bill_id: UUID, reason: str, voided_by: UUID
+    db, schema: str, outlet_id: UUID, bill_id: UUID,
+    reason: str, voided_by: UUID
 ) -> dict:
     bill = await db.fetchrow(
-        f'SELECT id, status FROM "{schema}".bills WHERE id = $1',
-        bill_id
+        f"""
+        SELECT id, status FROM "{schema}".bills
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        bill_id, outlet_id
     )
     if not bill:
         raise HTTPException(404, "Bill not found")
@@ -503,10 +535,12 @@ async def void_bill(
         """,
         voided_by, reason, bill_id
     )
-    return await get_bill(db, schema, bill_id)
+    return await get_bill(db, schema, outlet_id, bill_id)
 
 
-async def get_bill_html(db, schema: str, bill_id: UUID) -> str:
+async def get_bill_html(
+    db, schema: str, outlet_id: UUID, bill_id: UUID
+) -> str:
     bill = await db.fetchrow(
         f"""
         SELECT b.id, b.bill_number, b.subtotal, b.service_charge_pct,
@@ -524,15 +558,15 @@ async def get_bill_html(db, schema: str, bill_id: UUID) -> str:
         FROM "{schema}".bills b
         LEFT JOIN "{schema}".orders o  ON o.id = b.order_id
         LEFT JOIN "{schema}".tables t  ON t.id = o.table_id
-        LEFT JOIN core.tenants tn      ON tn.schema_name = $2
-        WHERE b.id = $1
+        LEFT JOIN core.tenants tn      ON tn.schema_name = $3
+        WHERE b.id = $1 AND b.outlet_id = $2
         """,
-        bill_id, schema
+        bill_id, outlet_id, schema
     )
     if not bill:
         raise HTTPException(404, "Bill not found")
 
-    settings = await get_or_create_billing_settings(db, schema)
+    settings = await get_or_create_billing_settings(db, schema, outlet_id)
 
     items = []
     if bill["order_number"]:
@@ -561,14 +595,21 @@ async def get_bill_html(db, schema: str, bill_id: UUID) -> str:
             <td class='right'>Rs {item['line_total']:,.2f}</td>
         </tr>"""
 
-    # Business header block
     biz_name = bill["biz_name"] or "Restaurant"
-    biz_address_line = f"<div class='meta'>{bill['biz_address']}</div>" if bill["biz_address"] else ""
-    biz_phone_line = f"<div class='meta'>Tel: {bill['biz_phone']}</div>" if bill["biz_phone"] else ""
+    biz_address_line = (
+        f"<div class='meta'>{bill['biz_address']}</div>"
+        if bill["biz_address"] else ""
+    )
+    biz_phone_line = (
+        f"<div class='meta'>Tel: {bill['biz_phone']}</div>"
+        if bill["biz_phone"] else ""
+    )
 
-    # PAN always shows; VAT number only if VAT registered
     if bill["vat_registered"] and bill["vat_number"]:
-        biz_tax_line = f"<div class='meta'>PAN: {bill['biz_pan']} &nbsp;|&nbsp; VAT No: {bill['vat_number']}</div>"
+        biz_tax_line = (
+            f"<div class='meta'>PAN: {bill['biz_pan']} &nbsp;|&nbsp; "
+            f"VAT No: {bill['vat_number']}</div>"
+        )
         invoice_type = "TAX INVOICE"
     elif bill["biz_pan"]:
         biz_tax_line = f"<div class='meta'>PAN: {bill['biz_pan']}</div>"
@@ -577,7 +618,6 @@ async def get_bill_html(db, schema: str, bill_id: UUID) -> str:
         biz_tax_line = ""
         invoice_type = "INVOICE"
 
-    # Table / order type
     if bill["table_number"]:
         table_info = f"Table: {bill['table_number']}"
     elif bill["order_type"]:
@@ -585,31 +625,41 @@ async def get_bill_html(db, schema: str, bill_id: UUID) -> str:
     else:
         table_info = ""
 
-    bill_time = bill["created_at"].strftime("%Y-%m-%d %H:%M") if bill["created_at"] else ""
+    bill_time = (
+        bill["created_at"].strftime("%Y-%m-%d %H:%M")
+        if bill["created_at"] else ""
+    )
 
-    # Corporate block (bill-to section)
     corporate_html = ""
     if bill["is_corporate"] and bill["corporate_name"]:
-        corporate_html = f"<div class='section-label'>Bill To</div>"
+        corporate_html = "<div class='section-label'>Bill To</div>"
         corporate_html += f"<div class='meta bold'>{bill['corporate_name']}</div>"
         if bill["corporate_pan"]:
             corporate_html += f"<div class='meta'>PAN: {bill['corporate_pan']}</div>"
         corporate_html = f"<div class='corporate-block'>{corporate_html}</div>"
 
-    # VAT line in totals — only if VAT registered
     vat_line = ""
     if bill["vat_registered"] and bill["vat_amt"] and bill["vat_amt"] > 0:
-        vat_line = f"<div class='total-row'><span>VAT ({bill['vat_pct']}%)</span><span>Rs {bill['vat_amt']:,.2f}</span></div>"
+        vat_line = (
+            f"<div class='total-row'><span>VAT ({bill['vat_pct']}%)</span>"
+            f"<span>Rs {bill['vat_amt']:,.2f}</span></div>"
+        )
 
     sc_line = ""
     if bill["service_charge_amt"] and bill["service_charge_amt"] > 0:
-        sc_line = f"<div class='total-row'><span>Service charge ({bill['service_charge_pct']}%)</span><span>Rs {bill['service_charge_amt']:,.2f}</span></div>"
+        sc_line = (
+            f"<div class='total-row'><span>Service charge "
+            f"({bill['service_charge_pct']}%)</span>"
+            f"<span>Rs {bill['service_charge_amt']:,.2f}</span></div>"
+        )
 
     discount_line = ""
     if bill["discount_amt"] and bill["discount_amt"] > 0:
-        discount_line = f"<div class='total-row discount'><span>Discount</span><span>- Rs {bill['discount_amt']:,.2f}</span></div>"
+        discount_line = (
+            f"<div class='total-row discount'><span>Discount</span>"
+            f"<span>- Rs {bill['discount_amt']:,.2f}</span></div>"
+        )
 
-    # QR block
     qr_html = ""
     if settings["qr_type"] == "custom" and settings["qr_image_url"]:
         qr_html = f"""
@@ -618,7 +668,11 @@ async def get_bill_html(db, schema: str, bill_id: UUID) -> str:
             <div class='meta'>Scan to Pay</div>
         </div>"""
     elif settings["qr_type"] == "fonepay":
-        qr_html = "<div class='qr'><div class='pending'>FonePay — Coming Soon</div></div>"
+        qr_html = (
+            "<div class='qr'>"
+            "<div class='pending'>FonePay — Coming Soon</div>"
+            "</div>"
+        )
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -690,9 +744,11 @@ async def get_bill_html(db, schema: str, bill_id: UUID) -> str:
     return html
 
 
-# ── Credit Accounts ───────────────────────────────────────────────────────────
+# Credit Accounts 
 
-async def create_credit_account(db, schema: str, data: dict) -> dict:
+async def create_credit_account(
+    db, schema: str, outlet_id: UUID, data: dict
+) -> dict:
     if data.get("customer_id"):
         customer = await db.fetchrow(
             f'SELECT id FROM "{schema}".customers WHERE id = $1',
@@ -704,11 +760,13 @@ async def create_credit_account(db, schema: str, data: dict) -> dict:
     row = await db.fetchrow(
         f"""
         INSERT INTO "{schema}".credit_accounts
-            (account_type, display_name, customer_id, contact_person,
-             contact_phone, billing_email, credit_limit, payment_terms, notes)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            (outlet_id, account_type, display_name, customer_id,
+             contact_person, contact_phone, billing_email,
+             credit_limit, payment_terms, notes)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
         RETURNING *
         """,
+        outlet_id,
         data["account_type"],
         data["display_name"],
         data.get("customer_id"),
@@ -722,17 +780,29 @@ async def create_credit_account(db, schema: str, data: dict) -> dict:
     return dict(row)
 
 
-async def list_credit_accounts(db, schema: str) -> list[dict]:
+async def list_credit_accounts(
+    db, schema: str, outlet_id: UUID
+) -> list[dict]:
     rows = await db.fetch(
-        f'SELECT * FROM "{schema}".credit_accounts ORDER BY display_name'
+        f"""
+        SELECT * FROM "{schema}".credit_accounts
+        WHERE outlet_id = $1
+        ORDER BY display_name
+        """,
+        outlet_id
     )
     return [dict(r) for r in rows]
 
 
-async def get_credit_account(db, schema: str, account_id: UUID) -> dict:
+async def get_credit_account(
+    db, schema: str, outlet_id: UUID, account_id: UUID
+) -> dict:
     row = await db.fetchrow(
-        f'SELECT * FROM "{schema}".credit_accounts WHERE id = $1',
-        account_id
+        f"""
+        SELECT * FROM "{schema}".credit_accounts
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        account_id, outlet_id
     )
     if not row:
         raise HTTPException(404, "Credit account not found")
@@ -740,11 +810,15 @@ async def get_credit_account(db, schema: str, account_id: UUID) -> dict:
 
 
 async def update_credit_account(
-    db, schema: str, account_id: UUID, data: dict
+    db, schema: str, outlet_id: UUID,
+    account_id: UUID, data: dict
 ) -> dict:
     account = await db.fetchrow(
-        f'SELECT id FROM "{schema}".credit_accounts WHERE id = $1',
-        account_id
+        f"""
+        SELECT id FROM "{schema}".credit_accounts
+        WHERE id = $1 AND outlet_id = $2
+        """,
+        account_id, outlet_id
     )
     if not account:
         raise HTTPException(404, "Credit account not found")
@@ -761,7 +835,7 @@ async def update_credit_account(
             idx += 1
 
     if not fields:
-        return await get_credit_account(db, schema, account_id)
+        return await get_credit_account(db, schema, outlet_id, account_id)
 
     values.append(account_id)
     await db.execute(
@@ -772,18 +846,20 @@ async def update_credit_account(
         """,
         *values
     )
-    return await get_credit_account(db, schema, account_id)
+    return await get_credit_account(db, schema, outlet_id, account_id)
 
 
 async def settle_credit_account(
-    db, schema: str, account_id: UUID, data: dict, processed_by: UUID
+    db, schema: str, outlet_id: UUID,
+    account_id: UUID, data: dict, processed_by: UUID
 ) -> dict:
     account = await db.fetchrow(
         f"""
         SELECT id, current_balance, is_active
-        FROM "{schema}".credit_accounts WHERE id = $1
+        FROM "{schema}".credit_accounts
+        WHERE id = $1 AND outlet_id = $2
         """,
-        account_id
+        account_id, outlet_id
     )
     if not account:
         raise HTTPException(404, "Credit account not found")
@@ -796,7 +872,8 @@ async def settle_credit_account(
     if amount > current_balance:
         raise HTTPException(
             400,
-            f"Settlement amount Rs {amount} exceeds outstanding balance Rs {current_balance}"
+            f"Settlement amount Rs {amount} exceeds outstanding balance "
+            f"Rs {current_balance}"
         )
 
     new_balance = current_balance - amount
@@ -824,21 +901,27 @@ async def settle_credit_account(
         processed_by,
     )
 
-    return await get_credit_account(db, schema, account_id)
+    return await get_credit_account(db, schema, outlet_id, account_id)
 
 
 async def get_credit_account_statement_html(
-    db, schema: str, account_id: UUID
+    db, schema: str, outlet_id: UUID, account_id: UUID
 ) -> str:
-    account = await get_credit_account(db, schema, account_id)
+    account = await get_credit_account(db, schema, outlet_id, account_id)
 
     tenant = await db.fetchrow(
-        'SELECT name, address, phone, pan_number, vat_registered, vat_number FROM core.tenants WHERE schema_name = $1',
+        """
+        SELECT name, address, phone, pan_number, vat_registered, vat_number
+        FROM core.tenants WHERE schema_name = $1
+        """,
         schema
     )
     biz_name = tenant["name"] if tenant else "Restaurant"
     biz_pan = tenant["pan_number"] if tenant else None
-    biz_vat = tenant["vat_number"] if (tenant and tenant["vat_registered"]) else None
+    biz_vat = (
+        tenant["vat_number"]
+        if (tenant and tenant["vat_registered"]) else None
+    )
 
     bills = await db.fetch(
         f"""
@@ -854,7 +937,10 @@ async def get_credit_account_statement_html(
     )
 
     if not bills:
-        days_html = "<p style='text-align:center;color:#666;padding:20px 0;'>No outstanding bills.</p>"
+        days_html = (
+            "<p style='text-align:center;color:#666;padding:20px 0;'>"
+            "No outstanding bills.</p>"
+        )
     else:
         days = defaultdict(list)
         for bill in bills:
@@ -900,7 +986,10 @@ async def get_credit_account_statement_html(
                         <td style='text-align:right;padding:3px 6px;'>Rs {line:,.2f}</td>
                     </tr>"""
 
-                order_label = bill['order_type'].replace('_', ' ').title() if bill['order_type'] else ''
+                order_label = (
+                    bill['order_type'].replace('_', ' ').title()
+                    if bill['order_type'] else ''
+                )
                 day_content += f"""
                 <div style='margin:8px 0;border:0.5px solid #ddd;border-radius:4px;overflow:hidden;'>
                     <div style='background:#f5f5f5;padding:6px 10px;font-size:12px;display:flex;justify-content:space-between;'>
