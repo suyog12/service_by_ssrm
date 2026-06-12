@@ -60,6 +60,12 @@ async def login_user(data: LoginRequest, db: asyncpg.Connection) -> LoginRespons
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
 
+    # 4.5. Single session enforcement — revoke all previous refresh tokens
+    await db.execute(
+        "UPDATE core.refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE",
+        user["id"]
+    )
+    
     # 5. Store refresh token
     token_hash = hash_password(refresh_token)
     expires_at = datetime.now(timezone.utc) + timedelta(days=7)

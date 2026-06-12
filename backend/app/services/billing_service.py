@@ -5,12 +5,32 @@ import secrets
 import string
 from datetime import datetime
 from collections import defaultdict
+from app.services import hotel_service
+from app.utils.nepali_date import to_bs, add_bs_fields
 
 
 def _generate_bill_number() -> str:
     chars = string.ascii_uppercase + string.digits
     suffix = ''.join(secrets.choice(chars) for _ in range(6))
     return f"BILL-{suffix}"
+
+
+async def _track_customer_visit(db, schema: str, bill_id: UUID):
+    bill = await db.fetchrow(
+        f'SELECT customer_id, total_amount FROM "{schema}".bills WHERE id = $1',
+        bill_id
+    )
+    if bill and bill["customer_id"]:
+        await db.execute(
+            f"""
+            UPDATE "{schema}".customers
+            SET total_visits = total_visits + 1,
+                total_spent = total_spent + $1,
+                updated_at = NOW()
+            WHERE id = $2
+            """,
+            bill["total_amount"], bill["customer_id"]
+        )
 
 
 # Billing Settings 
@@ -191,6 +211,7 @@ async def generate_bill(
     result["items"] = await _get_bill_line_items(db, schema, order_id)
     result["qr_type"] = settings["qr_type"]
     result["qr_image_url"] = settings["qr_image_url"]
+    result["created_at_bs"] = to_bs(result["created_at"])
     return result
 
 
@@ -223,6 +244,7 @@ async def get_bill(
     settings = await get_or_create_billing_settings(db, schema, outlet_id)
     result["qr_type"] = settings["qr_type"]
     result["qr_image_url"] = settings["qr_image_url"]
+    result["created_at_bs"] = to_bs(result["created_at"])
     return result
 
 
@@ -255,7 +277,7 @@ async def list_bills(
             """,
             outlet_id
         )
-    return [dict(r) for r in rows]
+    return [add_bs_fields(dict(r), ["created_at"]) for r in rows]
 
 
 async def apply_discount(
@@ -361,7 +383,8 @@ async def process_payment(
 ) -> dict:
     bill = await db.fetchrow(
         f"""
-        SELECT id, status, total_amount, credit_account_id
+        SELECT id, status, total_amount, credit_account_id,
+               reservation_id, bill_number
         FROM "{schema}".bills
         WHERE id = $1 AND outlet_id = $2
         """,
@@ -369,7 +392,7 @@ async def process_payment(
     )
     if not bill:
         raise HTTPException(404, "Bill not found")
-    if bill["status"] in ("voided", "paid"):
+    if bill["status"] in ("voided", "paid", "room_charge_posted"):
         raise HTTPException(400, f"Bill is already {bill['status']}")
 
     method = data["method"]
@@ -433,6 +456,63 @@ async def process_payment(
             """,
             bill_id
         )
+
+    elif method == "room_charge":
+        if not bill["reservation_id"]:
+            raise HTTPException(
+                400,
+                "This bill is not linked to a hotel reservation"
+            )
+
+        await hotel_service.add_folio_charge(
+            bill["reservation_id"],
+            "restaurant",
+            f"Bill {bill['bill_number']}",
+            Decimal(str(bill["total_amount"])),
+            schema,
+            db,
+            processed_by,
+            reference_id=bill_id,
+            reference_type="bill",
+        )
+
+        await db.execute(
+            f"""
+            UPDATE "{schema}".bills
+            SET status = 'room_charge_posted', updated_at = NOW()
+            WHERE id = $1
+            """,
+            bill_id
+        )
+
+        bill_row = await db.fetchrow(
+            f'SELECT order_id FROM "{schema}".bills WHERE id = $1',
+            bill_id
+        )
+        if bill_row and bill_row["order_id"]:
+            order_row = await db.fetchrow(
+                f'SELECT table_id FROM "{schema}".orders WHERE id = $1',
+                bill_row["order_id"]
+            )
+            await db.execute(
+                f"""
+                UPDATE "{schema}".orders
+                SET status = 'billed', updated_at = NOW()
+                WHERE id = $1
+                """,
+                bill_row["order_id"]
+            )
+            if order_row and order_row["table_id"]:
+                await db.execute(
+                    f"""
+                    UPDATE "{schema}".tables
+                    SET status = 'available', updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    order_row["table_id"]
+                )
+
+        await _track_customer_visit(db, schema, bill_id)
 
     else:
         await db.execute(
@@ -504,6 +584,8 @@ async def process_payment(
                         """,
                         order_row["table_id"]
                     )
+
+            await _track_customer_visit(db, schema, bill_id)
 
     return await get_bill(db, schema, outlet_id, bill_id)
 

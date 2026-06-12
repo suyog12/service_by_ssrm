@@ -17,3 +17,5 @@ httpx
 anyio[trio]
 datetime
 openpyxl
+nepali-datetime
+asyncpg

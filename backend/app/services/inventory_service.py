@@ -4,6 +4,8 @@ from decimal import Decimal
 import secrets
 import string
 from app.utils.email import send_email
+from datetime import datetime
+from app.utils.nepali_date import to_bs, add_bs_fields
 
 
 VALID_PO_STATUSES = (
@@ -12,10 +14,16 @@ VALID_PO_STATUSES = (
 )
 
 
-def _generate_po_number() -> str:
-    chars = string.ascii_uppercase + string.digits
-    suffix = ''.join(secrets.choice(chars) for _ in range(6))
-    return f"PO-{suffix}"
+async def _generate_po_number(db, schema: str) -> str:
+    year = datetime.now().year
+    count = await db.fetchval(
+        f"""
+        SELECT COUNT(*) FROM "{schema}".purchase_orders
+        WHERE po_number LIKE $1
+        """,
+        f"PO-{year}-%"
+    )
+    return f"PO-{year}-{(count or 0) + 1:03d}"
 
 
 async def _fire_low_stock_alert(
@@ -399,6 +407,7 @@ async def _get_po_with_items(
 
     result = dict(po)
     result["items"] = [dict(i) for i in items]
+    result["created_at_bs"] = to_bs(result["created_at"])
     return result
 
 
@@ -418,14 +427,7 @@ async def create_purchase_order(
     if not supplier["is_active"]:
         raise HTTPException(400, "Supplier is inactive")
 
-    for _ in range(10):
-        po_number = _generate_po_number()
-        existing = await db.fetchrow(
-            f'SELECT id FROM "{schema}".purchase_orders WHERE po_number = $1',
-            po_number
-        )
-        if not existing:
-            break
+    po_number = await _generate_po_number(db, schema)
 
     row = await db.fetchrow(
         f"""
@@ -549,6 +551,7 @@ async def list_purchase_orders(
     result = []
     for row in rows:
         d = dict(row)
+        d["created_at_bs"] = to_bs(d["created_at"])
         items = await db.fetch(
             f"""
             SELECT pi.*, i.name AS ingredient_name, i.unit

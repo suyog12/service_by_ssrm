@@ -16,6 +16,7 @@ from app.api.v1.endpoints.kot import router as kot_router
 from app.api.v1.endpoints.billing import router as billing_router
 from app.api.v1.endpoints.inventory import router as inventory_router
 from app.api.v1.endpoints.outlets import router as outlets_router
+from app.api.v1.endpoints.hotel import router as hotel_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -53,6 +54,7 @@ app.include_router(kot_router, prefix="/api/v1")
 app.include_router(billing_router, prefix="/api/v1")
 app.include_router(inventory_router, prefix="/api/v1")
 app.include_router(outlets_router, prefix="/api/v1")
+app.include_router(hotel_router, prefix="/api/v1")
 
 
 @app.get("/")
