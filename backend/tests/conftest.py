@@ -29,6 +29,7 @@ async def clean_inventory():
         user=settings.DB_USER,
         password=settings.DB_PASSWORD,
         database=settings.DB_NAME,
+        statement_cache_size=0,
     )
     try:
         for schema in [TENANT_SCHEMA, TENANT_SCHEMA_B]:
@@ -189,12 +190,13 @@ def clean_db_once():
     import asyncpg as apg
 
     async def _clean():
-        conn = await apg.connect(
+        conn = await asyncpg.connect(
             host=settings.DB_HOST,
             port=settings.DB_PORT,
             user=settings.DB_USER,
             password=settings.DB_PASSWORD,
             database=settings.DB_NAME,
+            statement_cache_size=0,
         )
         try:
             rows = await conn.fetch(
