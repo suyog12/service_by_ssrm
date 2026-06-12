@@ -17,7 +17,6 @@ def generate_temp_password(length: int = 10) -> str:
     alphabet = string.ascii_letters + string.digits
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
-
 async def login_user(data: LoginRequest, db: asyncpg.Connection) -> LoginResponse:
     # 1. Find tenant by slug
     tenant = await db.fetchrow(
@@ -65,8 +64,8 @@ async def login_user(data: LoginRequest, db: asyncpg.Connection) -> LoginRespons
         "UPDATE core.refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE",
         user["id"]
     )
-    
-    # 5. Store refresh token
+
+    # 5. Store new refresh token
     token_hash = hash_password(refresh_token)
     expires_at = datetime.now(timezone.utc) + timedelta(days=7)
     await db.execute(
@@ -92,7 +91,6 @@ async def login_user(data: LoginRequest, db: asyncpg.Connection) -> LoginRespons
         schema_name=tenant["schema_name"],
         must_change_password=user["must_change_password"]
     )
-
 
 async def change_password(
     user_id: UUID,
