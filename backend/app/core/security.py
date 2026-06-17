@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
+import secrets
 from app.core.config import settings
 
 
@@ -22,7 +23,13 @@ def create_refresh_token(data: dict) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
     )
-    payload.update({"exp": expire, "type": "refresh"})
+    # jti ensures every refresh token is unique even if generated
+    # for the same user within the same second
+    payload.update({
+        "exp": expire,
+        "type": "refresh",
+        "jti": secrets.token_hex(16)
+    })
     return jwt.encode(
         payload,
         settings.JWT_SECRET_KEY,

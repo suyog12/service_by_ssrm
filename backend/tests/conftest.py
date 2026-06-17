@@ -127,6 +127,11 @@ async def clean_inventory():
                     pass
 
             # Outlets — delete non-default only, keep billing settings for default
+            # Refresh tokens
+            try:
+                await conn.execute("DELETE FROM core.refresh_tokens")
+            except Exception:
+                pass
             try:
                 await conn.execute(
                     f"""
@@ -255,18 +260,21 @@ async def registered_tenant(client, db):
         })
         assert login.status_code == 200, f"Login failed after password reset: {login.text}"
         d = login.json()
-        return {
+        result = {
             "schema_name": d["schema_name"],
             "tenant_id": d["user_id"],
             "admin_user_id": d["user_id"]
         }
-    assert resp.status_code == 201, resp.text
-    # Upgrade to max tier so all features are available in tests
+    else:
+        assert resp.status_code == 201, resp.text
+        result = resp.json()
+
+    # Always upgrade to max tier — runs for both new and existing tenants
     await db.execute(
         "UPDATE core.tenants SET subscription_tier = 'max' WHERE slug = $1",
         "test-hotel-nepal"
     )
-    return resp.json()
+    return result
 
 
 @pytest.fixture

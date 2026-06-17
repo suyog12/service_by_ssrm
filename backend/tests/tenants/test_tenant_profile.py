@@ -13,7 +13,7 @@ class TestTenantProfilePositive:
         assert "name" in data
         assert "schema_name" in data
         assert data["schema_name"] == "tenant_test_hotel_nepal"
-        assert data["subscription_tier"] == "ez"
+        assert data["subscription_tier"] == "max"
 
 
 class TestTenantProfileNegative:

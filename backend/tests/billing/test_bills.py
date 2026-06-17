@@ -44,6 +44,55 @@ async def billed_order(client, admin_token):
     return {"order_id": order_id, "item_id": item_id, "item_price": 350.00}
 
 
+async def _make_fresh_order(client, admin_token):
+    """Helper to create a fresh unbilled order for tests that need their own order."""
+    cats = await client.get("/api/v1/menu/categories", headers=auth(admin_token))
+    cat_id = None
+    for c in cats.json():
+        if c["name"] == "Billing Test Cat":
+            cat_id = c["id"]
+            break
+
+    if not cat_id:
+        cat = await client.post(
+            "/api/v1/menu/categories",
+            json={"name": "Billing Test Cat"},
+            headers=auth(admin_token)
+        )
+        cat_id = cat.json()["id"]
+
+    items = await client.get("/api/v1/menu/items", headers=auth(admin_token))
+    item_id = None
+    for i in items.json():
+        if i["name"] == "Bill Test Burger":
+            item_id = i["id"]
+            break
+
+    if not item_id:
+        item = await client.post(
+            "/api/v1/menu/items",
+            json={"name": "Bill Test Burger", "category_id": cat_id,
+                  "price": "350.00", "item_type": "food"},
+            headers=auth(admin_token)
+        )
+        item_id = item.json()["id"]
+
+    order = await client.post(
+        "/api/v1/orders",
+        json={"order_type": "takeaway"},
+        headers=auth(admin_token)
+    )
+    assert order.status_code == 201
+    order_id = order.json()["id"]
+
+    await client.post(
+        f"/api/v1/orders/{order_id}/items",
+        json={"menu_item_id": item_id, "quantity": 2},
+        headers=auth(admin_token)
+    )
+    return {"order_id": order_id, "item_id": item_id, "item_price": 350.00}
+
+
 class TestBillPositive:
 
     async def test_generate_bill(self, client, admin_token, billed_order):
@@ -60,7 +109,8 @@ class TestBillPositive:
         assert float(data["subtotal"]) == 700.00
         assert len(data["items"]) == 1
 
-    async def test_bill_applies_vat(self, client, admin_token, billed_order):
+    async def test_bill_applies_vat(self, client, admin_token, registered_tenant):
+        fresh = await _make_fresh_order(client, admin_token)
         await client.patch(
             "/api/v1/billing/settings",
             json={"vat_mode": "exclusive", "vat_pct": "13.00", "service_charge_pct": "0"},
@@ -68,7 +118,7 @@ class TestBillPositive:
         )
         resp = await client.post(
             "/api/v1/billing/bills",
-            json={"order_id": billed_order["order_id"]},
+            json={"order_id": fresh["order_id"]},
             headers=auth(admin_token)
         )
         assert resp.status_code == 201
@@ -209,7 +259,7 @@ class TestBillPositive:
 
 class TestBillNegative:
 
-    async def test_cannot_bill_nonexistent_order(self, client, admin_token):
+    async def test_cannot_bill_nonexistent_order(self, client, admin_token, registered_tenant):
         resp = await client.post(
             "/api/v1/billing/bills",
             json={"order_id": "00000000-0000-0000-0000-000000000000"},
@@ -230,10 +280,11 @@ class TestBillNegative:
         )
         assert resp.status_code == 400
 
-    async def test_cannot_void_paid_bill(self, client, admin_token, billed_order):
+    async def test_cannot_void_paid_bill(self, client, admin_token, registered_tenant):
+        fresh = await _make_fresh_order(client, admin_token)
         create = await client.post(
             "/api/v1/billing/bills",
-            json={"order_id": billed_order["order_id"]},
+            json={"order_id": fresh["order_id"]},
             headers=auth(admin_token)
         )
         bill_id = create.json()["id"]

@@ -6,7 +6,7 @@ import asyncpg
 
 from app.utils.email import send_password_reset_email
 from app.core.security import create_access_token, create_refresh_token, decode_token
-from app.utils.password import hash_password, verify_password
+from app.utils.password import hash_password, verify_password, hash_token, verify_token
 from app.schemas.auth import (
     LoginRequest, LoginResponse,
     RefreshResponse,
@@ -59,22 +59,21 @@ async def login_user(data: LoginRequest, db: asyncpg.Connection) -> LoginRespons
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
 
-    # 4.5. Single session enforcement — revoke all previous refresh tokens
-    await db.execute(
-        "UPDATE core.refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE",
-        user["id"]
-    )
-
-    # 5. Store new refresh token
-    token_hash = hash_password(refresh_token)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-    await db.execute(
-        """
-        INSERT INTO core.refresh_tokens (user_id, token_hash, expires_at)
-        VALUES ($1, $2, $3)
-        """,
-        user["id"], token_hash, expires_at
-    )
+    # 5. Single session enforcement + store new token atomically
+    async with db.transaction():
+        await db.execute(
+            "UPDATE core.refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE",
+            user["id"]
+        )
+        token_hash = hash_token(refresh_token)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+        await db.execute(
+            """
+            INSERT INTO core.refresh_tokens (user_id, token_hash, expires_at)
+            VALUES ($1, $2, $3)
+            """,
+            user["id"], token_hash, expires_at
+        )
 
     # 6. Update last login
     await db.execute(
@@ -142,7 +141,7 @@ async def refresh_access_token(refresh_token: str, db: asyncpg.Connection) -> Re
 
     matched_token = None
     for stored in stored_tokens:
-        if verify_password(refresh_token, stored["token_hash"]):
+        if verify_token(refresh_token, stored["token_hash"]):
             matched_token = stored
             break
 
@@ -172,7 +171,7 @@ async def logout_user(refresh_token: str, db: asyncpg.Connection) -> dict:
     )
 
     for stored in stored_tokens:
-        if verify_password(refresh_token, stored["token_hash"]):
+        if verify_token(refresh_token, stored["token_hash"]):
             await db.execute(
                 "UPDATE core.refresh_tokens SET revoked = TRUE WHERE id = $1",
                 stored["id"]
@@ -180,6 +179,7 @@ async def logout_user(refresh_token: str, db: asyncpg.Connection) -> dict:
             break
 
     return {"message": "Logged out successfully"}
+
 
 async def forgot_password(
     email: str,
@@ -192,7 +192,6 @@ async def forgot_password(
         tenant_slug
     )
     if not tenant:
-        # Return success anyway to prevent email enumeration
         return {"message": "If that email exists you will receive a reset link shortly"}
 
     # 2. Find user
@@ -211,7 +210,7 @@ async def forgot_password(
 
     # 4. Generate reset token
     raw_token = secrets.token_urlsafe(32)
-    token_hash = hash_password(raw_token)
+    token_hash = hash_token(raw_token)
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
 
     await db.execute(
@@ -249,7 +248,7 @@ async def reset_password(
 
     matched = None
     for stored in stored_tokens:
-        if verify_password(token, stored["token_hash"]):
+        if verify_token(token, stored["token_hash"]):
             matched = stored
             break
 
