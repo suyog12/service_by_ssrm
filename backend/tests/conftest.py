@@ -156,21 +156,6 @@ async def clean_inventory():
     finally:
         await conn.close()
 
-# Direct DB connection per test 
-
-@pytest.fixture
-async def db():
-    conn = await asyncpg.connect(
-        host=settings.DB_HOST,
-        port=settings.DB_PORT,
-        user=settings.DB_USER,
-        password=settings.DB_PASSWORD,
-        database=settings.DB_NAME,
-    )
-    yield conn
-    await conn.close()
-
-
 # HTTP client per test 
 
 @pytest.fixture
@@ -276,6 +261,11 @@ async def registered_tenant(client, db):
             "admin_user_id": d["user_id"]
         }
     assert resp.status_code == 201, resp.text
+    # Upgrade to max tier so all features are available in tests
+    await db.execute(
+        "UPDATE core.tenants SET subscription_tier = 'max' WHERE slug = $1",
+        "test-hotel-nepal"
+    )
     return resp.json()
 
 
@@ -305,6 +295,10 @@ async def registered_tenant_b(client, db):
             "admin_user_id": d["user_id"]
         }
     assert resp.status_code == 201, resp.text
+    await db.execute(
+        "UPDATE core.tenants SET subscription_tier = 'max' WHERE slug = $1",
+        "second-restaurant-nepal"
+    )
     return resp.json()
 
 
@@ -342,35 +336,6 @@ async def admin_token_b(client, registered_tenant_b):
 
 
 @pytest.fixture
-async def staff_user(client, admin_token, db):
-    resp = await client.post(
-        "/api/v1/users",
-        json={"full_name": "Test Staff",
-              "email": "teststaff@testhotel.com",
-              "phone": "9800000099"},
-        headers=auth(admin_token)
-    )
-    if resp.status_code == 400 and "already exists" in resp.json().get("detail", ""):
-        row = await db.fetchrow(
-            "SELECT id FROM core.users WHERE email = $1",
-            "teststaff@testhotel.com"
-        )
-        user_id = str(row["id"])
-    else:
-        assert resp.status_code == 201, resp.text
-        user_id = resp.json()["user_id"]
-
-    from app.utils.password import hash_password
-    await db.execute(
-        "UPDATE core.users SET password_hash=$1, must_change_password=FALSE WHERE id=$2",
-        hash_password("StaffPass@123"), user_id
-    )
-    return {"user_id": user_id,
-            "email": "teststaff@testhotel.com",
-            "password": "StaffPass@123"}
-
-
-@pytest.fixture
 async def staff_token(client, staff_user, registered_tenant):
     resp = await client.post("/api/v1/auth/login", json={
         "email": staff_user["email"],
@@ -405,3 +370,92 @@ async def manager_role(client, admin_token):
                 return role
     assert resp.status_code == 201, resp.text
     return resp.json()
+
+@pytest.fixture
+async def staff_role(client, admin_token):
+    """Minimal waiter-level role — can create/view orders and view menu only."""
+    resp = await client.post(
+        "/api/v1/roles",
+        json={
+            "name": "Staff",
+            "description": "General staff role for testing",
+            "permissions": [
+                {"feature_code": "orders.view",        "access_level": "view"},
+                {"feature_code": "orders.create",      "access_level": "edit"},
+                {"feature_code": "orders.edit",        "access_level": "edit"},
+                {"feature_code": "orders.cancel",      "access_level": "edit"},
+                {"feature_code": "orders.assign_chef", "access_level": "edit"},
+                {"feature_code": "menu.view",          "access_level": "view"},
+                {"feature_code": "floor.tables",       "access_level": "view"},
+                {"feature_code": "outlets.view",       "access_level": "view"},
+                {"feature_code": "billing.view",       "access_level": "view"},
+                {"feature_code": "billing.generate",   "access_level": "edit"},
+                {"feature_code": "billing.discount",   "access_level": "edit"},
+                {"feature_code": "inventory.view",     "access_level": "view"},
+                {"feature_code": "analytics.own",      "access_level": "view"},
+                {"feature_code": "comms.chat",         "access_level": "edit"},
+                {"feature_code": "hotel.rooms",        "access_level": "view"},
+                {"feature_code": "hotel.guests",       "access_level": "edit"},
+                {"feature_code": "hotel.reservations", "access_level": "edit"},
+                {"feature_code": "hotel.checkin",      "access_level": "edit"},
+                {"feature_code": "hotel.room_charges", "access_level": "edit"},
+                {"feature_code": "hotel.housekeeping", "access_level": "edit"},
+            ]
+        },
+        headers=auth(admin_token)
+    )
+    if resp.status_code == 400 and "already exists" in resp.json().get("detail", ""):
+        roles = await client.get("/api/v1/roles", headers=auth(admin_token))
+        for role in roles.json():
+            if role["name"] == "Staff":
+                return role
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+@pytest.fixture
+async def db():
+    conn = await asyncpg.connect(
+        host=settings.DB_HOST,
+        port=settings.DB_PORT,
+        user=settings.DB_USER,
+        password=settings.DB_PASSWORD,
+        database=settings.DB_NAME,
+        statement_cache_size=0,
+    )
+    yield conn
+    await conn.close()
+
+@pytest.fixture
+async def staff_user(client, admin_token, staff_role, db):
+    resp = await client.post(
+        "/api/v1/users",
+        json={"full_name": "Test Staff",
+              "email": "teststaff@testhotel.com",
+              "phone": "9800000099"},
+        headers=auth(admin_token)
+    )
+    if resp.status_code == 400 and "already exists" in resp.json().get("detail", ""):
+        row = await db.fetchrow(
+            "SELECT id FROM core.users WHERE email = $1",
+            "teststaff@testhotel.com"
+        )
+        user_id = str(row["id"])
+    else:
+        assert resp.status_code == 201, resp.text
+        user_id = resp.json()["user_id"]
+
+    # Assign the staff role
+    await client.post(
+        "/api/v1/users/assign-role",
+        json={"user_id": user_id, "role_template_id": str(staff_role["id"])},
+        headers=auth(admin_token)
+    )
+
+    from app.utils.password import hash_password
+    await db.execute(
+        "UPDATE core.users SET password_hash=$1, must_change_password=FALSE WHERE id=$2",
+        hash_password("StaffPass@123"), user_id
+    )
+    return {"user_id": user_id,
+            "email": "teststaff@testhotel.com",
+            "password": "StaffPass@123"}

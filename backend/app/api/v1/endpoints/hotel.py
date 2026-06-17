@@ -4,7 +4,7 @@ from uuid import UUID
 from datetime import date
 from decimal import Decimal
 
-from app.core.dependencies import get_current_user, get_db, require_admin
+from app.core.dependencies import require_feature, get_db
 from app.schemas.hotel import (
     RoomTypeCreate, RoomTypeUpdate, RoomTypeResponse,
     PricingRuleCreate, PricingRuleResponse,
@@ -18,12 +18,12 @@ from app.services import hotel_service
 router = APIRouter(prefix="/hotel", tags=["hotel"])
 
 
-# Room Types 
+# Room Types
 
 @router.post("/room-types", status_code=201)
 async def create_room_type(
     data: RoomTypeCreate,
-    current_user=Depends(require_admin),
+    current_user=Depends(require_feature("hotel.rooms", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.create_room_type(
@@ -34,7 +34,7 @@ async def create_room_type(
 @router.get("/room-types")
 async def list_room_types(
     active_only: bool = Query(default=True),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.rooms", "view")),
     db=Depends(get_db)
 ):
     return await hotel_service.list_room_types(
@@ -45,7 +45,7 @@ async def list_room_types(
 @router.get("/room-types/{room_type_id}")
 async def get_room_type(
     room_type_id: UUID,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.rooms", "view")),
     db=Depends(get_db)
 ):
     return await hotel_service.get_room_type(
@@ -57,7 +57,7 @@ async def get_room_type(
 async def update_room_type(
     room_type_id: UUID,
     data: RoomTypeUpdate,
-    current_user=Depends(require_admin),
+    current_user=Depends(require_feature("hotel.rooms", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.update_room_type(
@@ -68,7 +68,7 @@ async def update_room_type(
 @router.delete("/room-types/{room_type_id}")
 async def delete_room_type(
     room_type_id: UUID,
-    current_user=Depends(require_admin),
+    current_user=Depends(require_feature("hotel.rooms", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.delete_room_type(
@@ -81,7 +81,7 @@ async def get_share_card(
     room_type_id: UUID,
     check_in: Optional[date] = Query(default=None),
     check_out: Optional[date] = Query(default=None),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.rooms", "view")),
     db=Depends(get_db)
 ):
     return await hotel_service.get_room_share_card(
@@ -89,13 +89,13 @@ async def get_share_card(
     )
 
 
-# Pricing Rules 
+# Pricing Rules
 
 @router.post("/room-types/{room_type_id}/pricing-rules", status_code=201)
 async def create_pricing_rule(
     room_type_id: UUID,
     data: PricingRuleCreate,
-    current_user=Depends(require_admin),
+    current_user=Depends(require_feature("hotel.rooms", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.create_pricing_rule(
@@ -106,7 +106,7 @@ async def create_pricing_rule(
 @router.get("/room-types/{room_type_id}/pricing-rules")
 async def list_pricing_rules(
     room_type_id: UUID,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.rooms", "view")),
     db=Depends(get_db)
 ):
     return await hotel_service.list_pricing_rules(
@@ -117,7 +117,7 @@ async def list_pricing_rules(
 @router.delete("/pricing-rules/{rule_id}")
 async def delete_pricing_rule(
     rule_id: UUID,
-    current_user=Depends(require_admin),
+    current_user=Depends(require_feature("hotel.rooms", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.delete_pricing_rule(
@@ -125,12 +125,12 @@ async def delete_pricing_rule(
     )
 
 
-# Rooms 
+# Rooms
 
 @router.post("/rooms", status_code=201)
 async def create_room(
     data: RoomCreate,
-    current_user=Depends(require_admin),
+    current_user=Depends(require_feature("hotel.rooms", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.create_room(
@@ -142,7 +142,7 @@ async def create_room(
 async def list_rooms(
     room_type_id: Optional[UUID] = Query(default=None),
     status: Optional[str] = Query(default=None),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.rooms", "view")),
     db=Depends(get_db)
 ):
     return await hotel_service.list_rooms(
@@ -156,7 +156,7 @@ async def check_availability(
     check_out: date = Query(...),
     adults: int = Query(default=1, ge=1),
     children: int = Query(default=0, ge=0),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.rooms", "view")),
     db=Depends(get_db)
 ):
     return await hotel_service.check_availability(
@@ -168,7 +168,7 @@ async def check_availability(
 @router.get("/rooms/{room_id}")
 async def get_room(
     room_id: UUID,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.rooms", "view")),
     db=Depends(get_db)
 ):
     return await hotel_service.get_room(
@@ -180,7 +180,7 @@ async def get_room(
 async def update_room(
     room_id: UUID,
     data: RoomUpdate,
-    current_user=Depends(require_admin),
+    current_user=Depends(require_feature("hotel.rooms", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.update_room(
@@ -191,7 +191,7 @@ async def update_room(
 @router.delete("/rooms/{room_id}")
 async def delete_room(
     room_id: UUID,
-    current_user=Depends(require_admin),
+    current_user=Depends(require_feature("hotel.rooms", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.delete_room(
@@ -199,12 +199,12 @@ async def delete_room(
     )
 
 
-# Guests 
+# Guests
 
 @router.post("/guests", status_code=201)
 async def create_guest(
     data: GuestCreate,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.guests", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.create_guest(
@@ -215,7 +215,7 @@ async def create_guest(
 @router.get("/guests")
 async def list_guests(
     search: Optional[str] = Query(default=None),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.guests", "view")),
     db=Depends(get_db)
 ):
     return await hotel_service.list_guests(
@@ -226,7 +226,7 @@ async def list_guests(
 @router.get("/guests/{guest_id}")
 async def get_guest(
     guest_id: UUID,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.guests", "view")),
     db=Depends(get_db)
 ):
     return await hotel_service.get_guest(
@@ -238,7 +238,7 @@ async def get_guest(
 async def update_guest(
     guest_id: UUID,
     data: GuestUpdate,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.guests", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.update_guest(
@@ -246,12 +246,12 @@ async def update_guest(
     )
 
 
-# Reservations 
+# Reservations
 
 @router.post("/reservations", status_code=201)
 async def create_reservation(
     data: ReservationCreate,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.reservations", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.create_reservation(
@@ -263,7 +263,7 @@ async def create_reservation(
 async def list_reservations(
     status: Optional[str] = Query(default=None),
     guest_id: Optional[UUID] = Query(default=None),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.reservations", "view")),
     db=Depends(get_db)
 ):
     return await hotel_service.list_reservations(
@@ -274,7 +274,7 @@ async def list_reservations(
 @router.get("/reservations/{reservation_id}")
 async def get_reservation(
     reservation_id: UUID,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.reservations", "view")),
     db=Depends(get_db)
 ):
     return await hotel_service.get_reservation(
@@ -286,7 +286,7 @@ async def get_reservation(
 async def update_reservation(
     reservation_id: UUID,
     data: ReservationUpdate,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.reservations", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.update_reservation(
@@ -297,7 +297,7 @@ async def update_reservation(
 @router.post("/reservations/{reservation_id}/cancel")
 async def cancel_reservation(
     reservation_id: UUID,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.reservations", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.cancel_reservation(
@@ -305,12 +305,12 @@ async def cancel_reservation(
     )
 
 
-# Check In / Check Out 
+# Check In / Check Out
 
 @router.post("/reservations/{reservation_id}/check-in")
 async def check_in(
     reservation_id: UUID,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.checkin", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.check_in(
@@ -321,7 +321,7 @@ async def check_in(
 @router.post("/reservations/{reservation_id}/check-out")
 async def check_out(
     reservation_id: UUID,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.checkin", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.check_out(
@@ -329,12 +329,12 @@ async def check_out(
     )
 
 
-# Guest Folio 
+# Guest Folio
 
 @router.get("/reservations/{reservation_id}/folio")
 async def get_folio(
     reservation_id: UUID,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.reservations", "view")),
     db=Depends(get_db)
 ):
     return await hotel_service.get_folio(
@@ -348,7 +348,7 @@ async def add_folio_charge(
     charge_type: str,
     description: str,
     amount: Decimal,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("hotel.room_charges", "edit")),
     db=Depends(get_db)
 ):
     return await hotel_service.add_folio_charge(

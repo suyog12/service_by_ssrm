@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from uuid import UUID
 
-from app.core.dependencies import get_current_user, get_current_admin
+from app.core.dependencies import get_current_user, require_feature
 from app.core.database import get_tenant_db
 from app.schemas.menu import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
@@ -13,12 +13,12 @@ from app.services import menu_service
 router = APIRouter(prefix="/menu", tags=["Menu Management"])
 
 
-# Categories 
+# Categories
 
 @router.post("/categories", response_model=CategoryResponse, status_code=201)
 async def create_category(
     body: CategoryCreate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("menu.edit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -30,7 +30,7 @@ async def create_category(
 
 @router.get("/categories", response_model=list[CategoryResponse])
 async def list_categories(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("menu.view", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -42,7 +42,7 @@ async def list_categories(
 async def update_category(
     category_id: UUID,
     body: CategoryUpdate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("menu.edit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -56,7 +56,7 @@ async def update_category(
 @router.delete("/categories/{category_id}")
 async def delete_category(
     category_id: UUID,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("menu.edit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -67,12 +67,12 @@ async def delete_category(
         return {"message": "Category deleted successfully"}
 
 
-# Menu Items 
+# Menu Items
 
 @router.post("/items", response_model=MenuItemResponse, status_code=201)
 async def create_item(
     body: MenuItemCreate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("menu.edit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -85,7 +85,7 @@ async def create_item(
 @router.get("/items", response_model=list[MenuItemResponse])
 async def list_items(
     category_id: Optional[UUID] = Query(None),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("menu.view", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -98,7 +98,7 @@ async def list_items(
 @router.get("/items/{item_id}", response_model=MenuItemResponse)
 async def get_item(
     item_id: UUID,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("menu.view", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -110,7 +110,7 @@ async def get_item(
 async def update_item(
     item_id: UUID,
     body: MenuItemUpdate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("menu.edit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -124,7 +124,7 @@ async def update_item(
 @router.delete("/items/{item_id}")
 async def delete_item(
     item_id: UUID,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("menu.edit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]

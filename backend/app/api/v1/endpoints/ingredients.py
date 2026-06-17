@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from uuid import UUID
 
-from app.core.dependencies import get_current_user, get_current_admin
+from app.core.dependencies import require_feature
 from app.core.database import get_tenant_db
 from app.schemas.ingredient import (
     IngredientCreate, IngredientUpdate, IngredientResponse,
@@ -12,12 +12,12 @@ from app.services import ingredient_service
 router = APIRouter(tags=["Ingredients"])
 
 
-# Ingredients 
+# Ingredients
 
 @router.post("/ingredients", response_model=IngredientResponse, status_code=201)
 async def create_ingredient(
     body: IngredientCreate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("menu.edit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -29,7 +29,7 @@ async def create_ingredient(
 
 @router.get("/ingredients", response_model=list[IngredientResponse])
 async def list_ingredients(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("menu.view", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -42,7 +42,7 @@ async def list_ingredients(
 @router.get("/ingredients/{ingredient_id}", response_model=IngredientResponse)
 async def get_ingredient(
     ingredient_id: UUID,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("menu.view", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -56,7 +56,7 @@ async def get_ingredient(
 async def update_ingredient(
     ingredient_id: UUID,
     body: IngredientUpdate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("menu.edit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -70,7 +70,7 @@ async def update_ingredient(
 @router.delete("/ingredients/{ingredient_id}")
 async def delete_ingredient(
     ingredient_id: UUID,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("menu.edit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -81,7 +81,7 @@ async def delete_ingredient(
         return {"message": "Ingredient deleted successfully"}
 
 
-# Item ingredient linking 
+# Item ingredient linking
 
 @router.post(
     "/menu/items/{item_id}/ingredients",
@@ -91,7 +91,7 @@ async def delete_ingredient(
 async def add_ingredient_to_item(
     item_id: UUID,
     body: ItemIngredientAdd,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("menu.edit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -107,7 +107,7 @@ async def add_ingredient_to_item(
 )
 async def list_item_ingredients(
     item_id: UUID,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("menu.view", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -125,7 +125,7 @@ async def update_item_ingredient(
     item_id: UUID,
     ingredient_id: UUID,
     body: ItemIngredientUpdate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("menu.edit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -139,7 +139,7 @@ async def update_item_ingredient(
 async def remove_ingredient_from_item(
     item_id: UUID,
     ingredient_id: UUID,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("menu.edit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from uuid import UUID
 
-from app.core.dependencies import get_current_user, get_current_admin
+from app.core.dependencies import require_feature
 from app.core.database import get_tenant_db
 from app.schemas.floor import (
     SectionCreate, SectionUpdate, SectionResponse,
@@ -13,12 +13,12 @@ from app.services import floor_service
 router = APIRouter(tags=["Floor Management"])
 
 
-# Sections 
+# Sections
 
 @router.post("/floor/sections", response_model=SectionResponse, status_code=201)
 async def create_section(
     body: SectionCreate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("floor.tables", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -30,7 +30,7 @@ async def create_section(
 
 @router.get("/floor/sections", response_model=list[SectionResponse])
 async def list_sections(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("floor.tables", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -42,7 +42,7 @@ async def list_sections(
 async def update_section(
     section_id: UUID,
     body: SectionUpdate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("floor.tables", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -56,7 +56,7 @@ async def update_section(
 @router.delete("/floor/sections/{section_id}")
 async def delete_section(
     section_id: UUID,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("floor.tables", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -67,12 +67,12 @@ async def delete_section(
         return {"message": "Section deleted successfully"}
 
 
-# Tables 
+# Tables
 
 @router.post("/floor/tables", response_model=TableResponse, status_code=201)
 async def create_table(
     body: TableCreate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("floor.tables", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -85,7 +85,7 @@ async def create_table(
 @router.get("/floor/tables", response_model=list[TableResponse])
 async def list_tables(
     section_id: Optional[UUID] = Query(None),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("floor.tables", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -98,7 +98,7 @@ async def list_tables(
 @router.get("/floor/tables/{table_id}", response_model=TableResponse)
 async def get_table(
     table_id: UUID,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("floor.tables", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -112,7 +112,7 @@ async def get_table(
 async def update_table(
     table_id: UUID,
     body: TableUpdate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("floor.tables", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -126,7 +126,7 @@ async def update_table(
 @router.delete("/floor/tables/{table_id}")
 async def delete_table(
     table_id: UUID,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("floor.tables", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]

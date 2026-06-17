@@ -2,10 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
 import asyncpg
 from typing import List
-from app.core.dependencies import get_current_user, get_current_user_strict, get_current_admin, require_permission
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, get_current_admin, require_permission
+from app.core.dependencies import (
+    get_current_user,
+    get_current_user_strict,
+    get_current_admin,
+    require_feature,
+)
 from app.schemas.user import (
     CreateUserRequest, CreateUserResponse,
     AssignRoleRequest, AssignRoleResponse,
@@ -28,10 +32,9 @@ router = APIRouter(prefix="/users", tags=["Users"])
 @router.post("", response_model=CreateUserResponse, status_code=201)
 async def create_staff(
     data: CreateUserRequest,
-    current_user: dict = Depends(require_permission("hr.create_staff", "edit")),
+    current_user: dict = Depends(require_feature("hr.create_staff", "edit")),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    # Get business name for welcome email
     tenant = await db.fetchrow(
         "SELECT name FROM core.tenants WHERE id = $1",
         current_user["tenant_id"]
@@ -63,70 +66,12 @@ async def get_my_profile(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.get("/{user_id}", response_model=UserProfileResponse)
-async def get_profile(
-    user_id: UUID,
-    current_user: dict = Depends(require_permission("hr.view_staff", "view")),
-    db: asyncpg.Connection = Depends(get_db)
-):
-    try:
-        return await get_user_profile(user_id, current_user["schema_name"], db)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.patch("/{user_id}")
-async def update(
-    user_id: UUID,
-    data: UpdateUserRequest,
-    current_user: dict = Depends(require_permission("hr.view_staff", "edit")),
-    db: asyncpg.Connection = Depends(get_db)
-):
-    return await update_user(user_id, data, current_user["schema_name"], db)
-
-
-@router.post("/assign-role", response_model=AssignRoleResponse)
-async def assign(
-    data: AssignRoleRequest,
-    current_user: dict = Depends(require_permission("config.roles", "edit")),
-    db: asyncpg.Connection = Depends(get_db)
-):
-    try:
-        return await assign_role(data, current_user["schema_name"], db)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.post("/permissions", response_model=PermissionOverrideResponse)
-async def override_permission(
-    data: PermissionOverrideRequest,
-    current_user: dict = Depends(require_permission("config.roles", "edit")),
-    db: asyncpg.Connection = Depends(get_db)
-):
-    try:
-        return await set_permission_override(
-            data,
-            current_user["schema_name"],
-            current_user["user_id"],
-            db
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.get("/{user_id}/permissions")
-async def user_permissions(
-    user_id: UUID,
-    current_user: dict = Depends(get_current_user),
-    db: asyncpg.Connection = Depends(get_db)
-):
-    return await get_user_permissions(user_id, current_user["schema_name"], db)
 
 @router.get("", response_model=List[UserProfileResponse])
 async def list_staff(
-    current_user: dict = Depends(require_permission("hr.view_staff", "view")),
+    current_user: dict = Depends(require_feature("hr.view_staff", "view")),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    """List all staff for this tenant"""
     rows = await db.fetch(
         f"""
         SELECT
@@ -157,6 +102,37 @@ async def list_staff(
     ]
 
 
+@router.get("/{user_id}/permissions")
+async def user_permissions(
+    user_id: UUID,
+    current_user: dict = Depends(get_current_user),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    return await get_user_permissions(user_id, current_user["schema_name"], db)
+
+
+@router.get("/{user_id}", response_model=UserProfileResponse)
+async def get_profile(
+    user_id: UUID,
+    current_user: dict = Depends(require_feature("hr.view_staff", "view")),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    try:
+        return await get_user_profile(user_id, current_user["schema_name"], db)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.patch("/{user_id}")
+async def update(
+    user_id: UUID,
+    data: UpdateUserRequest,
+    current_user: dict = Depends(require_feature("hr.create_staff", "edit")),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    return await update_user(user_id, data, current_user["schema_name"], db)
+
+
 @router.patch("/{user_id}/deactivate")
 async def deactivate_user(
     user_id: UUID,
@@ -183,3 +159,32 @@ async def reactivate_user(
         user_id
     )
     return {"message": "User reactivated successfully"}
+
+
+@router.post("/assign-role", response_model=AssignRoleResponse)
+async def assign(
+    data: AssignRoleRequest,
+    current_user: dict = Depends(require_feature("config.roles", "edit")),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    try:
+        return await assign_role(data, current_user["schema_name"], db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/permissions", response_model=PermissionOverrideResponse)
+async def override_permission(
+    data: PermissionOverrideRequest,
+    current_user: dict = Depends(require_feature("config.roles", "edit")),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    try:
+        return await set_permission_override(
+            data,
+            current_user["schema_name"],
+            current_user["user_id"],
+            db
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

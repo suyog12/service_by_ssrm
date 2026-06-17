@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from uuid import UUID
-from app.core.dependencies import get_db, get_current_user, require_admin
+
+from app.core.dependencies import get_db, require_feature
 from app.schemas.outlet import OutletCreate, OutletUpdate, OutletResponse
 from app.services import outlet_service
 
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/outlets", tags=["outlets"])
 async def create_outlet(
     data: OutletCreate,
     db=Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(require_feature("outlets.manage", "edit")),
 ):
     return await outlet_service.create_outlet(
         db, current_user["schema_name"], data.model_dump()
@@ -22,7 +23,7 @@ async def create_outlet(
 async def list_outlets(
     active_only: bool = Query(False),
     db=Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("outlets.view", "view")),
 ):
     return await outlet_service.list_outlets(
         db, current_user["schema_name"], active_only
@@ -33,7 +34,7 @@ async def list_outlets(
 async def get_outlet(
     outlet_id: UUID,
     db=Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_feature("outlets.view", "view")),
 ):
     return await outlet_service.get_outlet(
         db, current_user["schema_name"], outlet_id
@@ -45,7 +46,7 @@ async def update_outlet(
     outlet_id: UUID,
     data: OutletUpdate,
     db=Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(require_feature("outlets.manage", "edit")),
 ):
     return await outlet_service.update_outlet(
         db, current_user["schema_name"], outlet_id,

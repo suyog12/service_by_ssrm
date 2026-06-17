@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse
 from typing import Optional
 from uuid import UUID
 
-from app.core.dependencies import get_current_user, get_current_admin
+from app.core.dependencies import require_feature
 from app.core.database import get_tenant_db
 from app.schemas.billing import (
     BillingSettingsUpdate, BillingSettingsResponse,
@@ -17,11 +17,11 @@ from app.services import billing_service
 router = APIRouter(tags=["Billing"])
 
 
-# Billing Settings 
+# Billing Settings
 
 @router.get("/billing/settings", response_model=BillingSettingsResponse)
 async def get_billing_settings(
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("config.billing", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -34,7 +34,7 @@ async def get_billing_settings(
 @router.patch("/billing/settings", response_model=BillingSettingsResponse)
 async def update_billing_settings(
     body: BillingSettingsUpdate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("config.billing", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -44,12 +44,12 @@ async def update_billing_settings(
         )
 
 
-# Bills 
+# Bills
 
 @router.post("/billing/bills", response_model=BillResponse, status_code=201)
 async def generate_bill(
     body: BillCreate,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("billing.generate", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -62,7 +62,7 @@ async def generate_bill(
 @router.get("/billing/bills", response_model=list[dict])
 async def list_bills(
     status: Optional[str] = Query(None),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("billing.view", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -73,7 +73,7 @@ async def list_bills(
 @router.get("/billing/bills/{bill_id}", response_model=BillResponse)
 async def get_bill(
     bill_id: UUID,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("billing.view", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -85,7 +85,7 @@ async def get_bill(
 async def apply_discount(
     bill_id: UUID,
     body: DiscountApply,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("billing.discount", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -100,7 +100,7 @@ async def apply_discount(
 async def process_payment(
     bill_id: UUID,
     body: PaymentCreate,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("billing.generate", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -115,7 +115,7 @@ async def process_payment(
 async def void_bill(
     bill_id: UUID,
     reason: str = Query(...),
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("billing.void", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -129,7 +129,7 @@ async def void_bill(
 @router.get("/billing/bills/{bill_id}/html", response_class=HTMLResponse)
 async def get_bill_html(
     bill_id: UUID,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("billing.view", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -139,16 +139,12 @@ async def get_bill_html(
         )
 
 
-# Credit Accounts 
+# Credit Accounts
 
-@router.post(
-    "/billing/credit-accounts",
-    response_model=CreditAccountResponse,
-    status_code=201
-)
+@router.post("/billing/credit-accounts", response_model=CreditAccountResponse, status_code=201)
 async def create_credit_account(
     body: CreditAccountCreate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("billing.credit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -158,12 +154,9 @@ async def create_credit_account(
         )
 
 
-@router.get(
-    "/billing/credit-accounts",
-    response_model=list[CreditAccountResponse]
-)
+@router.get("/billing/credit-accounts", response_model=list[CreditAccountResponse])
 async def list_credit_accounts(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("billing.credit", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -173,13 +166,10 @@ async def list_credit_accounts(
         )
 
 
-@router.get(
-    "/billing/credit-accounts/{account_id}",
-    response_model=CreditAccountResponse
-)
+@router.get("/billing/credit-accounts/{account_id}", response_model=CreditAccountResponse)
 async def get_credit_account(
     account_id: UUID,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("billing.credit", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -189,14 +179,11 @@ async def get_credit_account(
         )
 
 
-@router.patch(
-    "/billing/credit-accounts/{account_id}",
-    response_model=CreditAccountResponse
-)
+@router.patch("/billing/credit-accounts/{account_id}", response_model=CreditAccountResponse)
 async def update_credit_account(
     account_id: UUID,
     body: CreditAccountUpdate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("billing.credit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -207,14 +194,11 @@ async def update_credit_account(
         )
 
 
-@router.post(
-    "/billing/credit-accounts/{account_id}/settle",
-    response_model=CreditAccountResponse
-)
+@router.post("/billing/credit-accounts/{account_id}/settle", response_model=CreditAccountResponse)
 async def settle_credit_account(
     account_id: UUID,
     body: CreditSettlement,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("billing.credit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -225,13 +209,10 @@ async def settle_credit_account(
         )
 
 
-@router.get(
-    "/billing/credit-accounts/{account_id}/statement",
-    response_class=HTMLResponse
-)
+@router.get("/billing/credit-accounts/{account_id}/statement", response_class=HTMLResponse)
 async def get_credit_account_statement(
     account_id: UUID,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_feature("billing.credit", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]

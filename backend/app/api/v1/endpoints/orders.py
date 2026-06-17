@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from uuid import UUID
 
-from app.core.dependencies import get_current_user, get_current_admin
+from app.core.dependencies import require_feature
 from app.core.database import get_tenant_db
 from app.schemas.order import (
     OrderCreate, OrderResponse, OrderStatusUpdate,
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/orders", tags=["Orders"])
 @router.post("", response_model=OrderResponse, status_code=201)
 async def create_order(
     body: OrderCreate,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("orders.create", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -29,7 +29,7 @@ async def create_order(
 @router.get("", response_model=list[OrderResponse])
 async def list_orders(
     status: Optional[str] = Query(None),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("orders.view", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -40,7 +40,7 @@ async def list_orders(
 @router.get("/{order_id}", response_model=OrderResponse)
 async def get_order(
     order_id: UUID,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("orders.view", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -54,7 +54,7 @@ async def get_order(
 async def update_order_status(
     order_id: UUID,
     body: OrderStatusUpdate,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("orders.edit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -65,15 +65,11 @@ async def update_order_status(
         )
 
 
-@router.post(
-    "/{order_id}/items",
-    response_model=OrderItemResponse,
-    status_code=201
-)
+@router.post("/{order_id}/items", response_model=OrderItemResponse, status_code=201)
 async def add_item_to_order(
     order_id: UUID,
     body: OrderItemAdd,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("orders.create", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -83,13 +79,10 @@ async def add_item_to_order(
         )
 
 
-@router.get(
-    "/{order_id}/items",
-    response_model=list[OrderItemResponse]
-)
+@router.get("/{order_id}/items", response_model=list[OrderItemResponse])
 async def list_order_items(
     order_id: UUID,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("orders.view", "view")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -99,15 +92,12 @@ async def list_order_items(
         )
 
 
-@router.patch(
-    "/{order_id}/items/{item_id}/status",
-    response_model=OrderItemResponse
-)
+@router.patch("/{order_id}/items/{item_id}/status", response_model=OrderItemResponse)
 async def update_item_status(
     order_id: UUID,
     item_id: UUID,
     body: OrderItemStatusUpdate,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("orders.edit", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]
@@ -122,7 +112,7 @@ async def update_item_status(
 async def cancel_order_item(
     order_id: UUID,
     item_id: UUID,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_feature("orders.cancel", "edit")),
 ):
     schema = current_user["schema_name"]
     outlet_id = current_user["outlet_id"]

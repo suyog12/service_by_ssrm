@@ -4,7 +4,7 @@ from typing import List
 import asyncpg
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_permission
+from app.core.dependencies import get_current_user, require_feature
 from app.schemas.role import (
     CreateRoleRequest, UpdateRoleRequest,
     RoleResponse, RoleListResponse, FeatureResponse
@@ -32,7 +32,7 @@ async def list_features(
 
 @router.get("", response_model=List[RoleListResponse])
 async def list_all_roles(
-    current_user: dict = Depends(require_permission("config.roles", "view")),
+    current_user: dict = Depends(require_feature("config.roles", "view")),
     db: asyncpg.Connection = Depends(get_db)
 ):
     return await list_roles(current_user["schema_name"], db)
@@ -41,7 +41,7 @@ async def list_all_roles(
 @router.post("", response_model=RoleResponse, status_code=201)
 async def create_new_role(
     data: CreateRoleRequest,
-    current_user: dict = Depends(require_permission("config.roles", "edit")),
+    current_user: dict = Depends(require_feature("config.roles", "edit")),
     db: asyncpg.Connection = Depends(get_db)
 ):
     try:
@@ -58,7 +58,7 @@ async def create_new_role(
 @router.get("/{role_id}", response_model=RoleResponse)
 async def get_single_role(
     role_id: UUID,
-    current_user: dict = Depends(require_permission("config.roles", "view")),
+    current_user: dict = Depends(require_feature("config.roles", "view")),
     db: asyncpg.Connection = Depends(get_db)
 ):
     try:
@@ -71,7 +71,7 @@ async def get_single_role(
 async def update_existing_role(
     role_id: UUID,
     data: UpdateRoleRequest,
-    current_user: dict = Depends(require_permission("config.roles", "edit")),
+    current_user: dict = Depends(require_feature("config.roles", "edit")),
     db: asyncpg.Connection = Depends(get_db)
 ):
     try:
@@ -83,7 +83,7 @@ async def update_existing_role(
 @router.delete("/{role_id}")
 async def delete_existing_role(
     role_id: UUID,
-    current_user: dict = Depends(require_permission("config.roles", "edit")),
+    current_user: dict = Depends(require_feature("config.roles", "edit")),
     db: asyncpg.Connection = Depends(get_db)
 ):
     try:
