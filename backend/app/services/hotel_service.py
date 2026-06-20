@@ -420,14 +420,21 @@ async def check_availability(
 # Guests 
 
 async def create_guest(data: GuestCreate, schema: str, db: asyncpg.Connection):
+    customer_id = None
+    if data.phone:
+        customer_id = await _resolve_customer_for_guest(
+            schema, db, data.full_name, data.phone
+        )
+
     row = await db.fetchrow(
         f"""
         INSERT INTO "{schema}".guests
-            (full_name, phone, email, id_type, id_number,
+            (customer_id, full_name, phone, email, id_type, id_number,
              nationality, company_name, company_pan, is_corporate)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING *
         """,
+        customer_id,
         data.full_name,
         data.phone,
         data.email,
@@ -439,6 +446,27 @@ async def create_guest(data: GuestCreate, schema: str, db: asyncpg.Connection):
         data.is_corporate,
     )
     return dict(row)
+
+
+async def _resolve_customer_for_guest(
+    schema: str, db: asyncpg.Connection, full_name: str, phone: str
+) -> UUID:
+    existing = await db.fetchrow(
+        f'SELECT id FROM "{schema}".customers WHERE phone = $1',
+        phone
+    )
+    if existing:
+        return existing["id"]
+
+    row = await db.fetchrow(
+        f"""
+        INSERT INTO "{schema}".customers (full_name, phone)
+        VALUES ($1, $2)
+        RETURNING id
+        """,
+        full_name, phone
+    )
+    return row["id"]
 
 
 async def list_guests(schema: str, db: asyncpg.Connection, search: Optional[str] = None):

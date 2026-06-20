@@ -85,6 +85,43 @@ class TestGuestPositive:
             headers=auth(staff_token)
         )
         assert resp.status_code == 201
+        
+    async def test_guest_with_phone_links_to_customer(self, client, admin_token):
+        resp = await client.post(
+            "/api/v1/hotel/guests",
+            json={"full_name": "Linked Guest", "phone": "9822000001"},
+            headers=auth(admin_token)
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["customer_id"] is not None
+
+    async def test_same_phone_reuses_existing_customer(self, client, admin_token):
+        first = await client.post(
+            "/api/v1/hotel/guests",
+            json={"full_name": "Repeat Guest", "phone": "9822000002"},
+            headers=auth(admin_token)
+        )
+        assert first.status_code == 201
+        first_customer_id = first.json()["customer_id"]
+        assert first_customer_id is not None
+
+        second = await client.post(
+            "/api/v1/hotel/guests",
+            json={"full_name": "Repeat Guest Again", "phone": "9822000002"},
+            headers=auth(admin_token)
+        )
+        assert second.status_code == 201
+        assert second.json()["customer_id"] == first_customer_id
+
+    async def test_guest_without_phone_has_no_customer_id(self, client, admin_token):
+        resp = await client.post(
+            "/api/v1/hotel/guests",
+            json={"full_name": "No Phone Guest"},
+            headers=auth(admin_token)
+        )
+        assert resp.status_code == 201
+        assert resp.json()["customer_id"] is None
 
 
 class TestGuestNegative:

@@ -74,6 +74,14 @@ async def clean_inventory():
             except Exception:
                 pass
 
+            # Table reservations and merges (must clear before tables/sections,
+            # since they FK-reference tables)
+            for table in ["table_merges", "table_reservations"]:
+                try:
+                    await conn.execute(f'DELETE FROM "{schema}".{table}')
+                except Exception:
+                    pass
+
             # Tables and sections
             for table in ["tables", "sections"]:
                 try:
