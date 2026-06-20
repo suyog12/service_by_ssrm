@@ -63,7 +63,7 @@ class TestRegisterPositive:
         await db.execute("DELETE FROM core.tenants WHERE slug = 'pure-hotel-nepal'")
 
     async def test_schema_created_in_db(self, client, db, registered_tenant):
-        """TC-REG-002: Verify 64 tables created in tenant schema"""
+        """TC-REG-002: Verify 75 tables created in tenant schema"""
         schema = registered_tenant["schema_name"]
         count = await db.fetchval(
             """
@@ -72,8 +72,7 @@ class TestRegisterPositive:
             """,
             schema
         )
-        assert count == 74
-
+        assert count == 75
 
     async def test_special_characters_in_name(self, client, db):
         """TC-REG-014: Business name with special characters"""

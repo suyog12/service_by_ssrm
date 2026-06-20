@@ -7,6 +7,7 @@ from datetime import datetime
 from collections import defaultdict
 from app.services import hotel_service
 from app.utils.nepali_date import to_bs, add_bs_fields
+from app.services.offer_service import _recalculate_bill_totals
 
 
 def _generate_bill_number() -> str:
@@ -373,7 +374,7 @@ async def apply_discount(
         """,
         total_discount, bill_id
     )
-
+    await _recalculate_bill_totals(db, schema, bill_id)
     return await get_bill(db, schema, outlet_id, bill_id)
 
 

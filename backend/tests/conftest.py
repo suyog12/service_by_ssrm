@@ -63,6 +63,12 @@ async def clean_inventory():
             # Menu items and categories (test-created ones)
             try:
                 await conn.execute(
+                    f'DELETE FROM "{schema}".bill_offers'
+                )
+                await conn.execute(
+                    f'DELETE FROM "{schema}".menu_offers'
+                )
+                await conn.execute(
                     f'DELETE FROM "{schema}".item_ingredients'
                 )
                 await conn.execute(
