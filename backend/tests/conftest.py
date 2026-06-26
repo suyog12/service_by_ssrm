@@ -37,6 +37,7 @@ async def clean_inventory():
             for table in [
                 "payments",
                 "bill_discounts",
+                "bill_offers",
                 "discount_approvals",
                 "credit_transactions",
                 "credit_accounts",
@@ -62,26 +63,14 @@ async def clean_inventory():
 
             # Menu items and categories (test-created ones)
             try:
-                await conn.execute(
-                    f'DELETE FROM "{schema}".bill_offers'
-                )
-                await conn.execute(
-                    f'DELETE FROM "{schema}".menu_offers'
-                )
-                await conn.execute(
-                    f'DELETE FROM "{schema}".item_ingredients'
-                )
-                await conn.execute(
-                    f'DELETE FROM "{schema}".menu_items'
-                )
-                await conn.execute(
-                    f'DELETE FROM "{schema}".menu_categories'
-                )
+                await conn.execute(f'DELETE FROM "{schema}".menu_offers')
+                await conn.execute(f'DELETE FROM "{schema}".item_ingredients')
+                await conn.execute(f'DELETE FROM "{schema}".menu_items')
+                await conn.execute(f'DELETE FROM "{schema}".menu_categories')
             except Exception:
                 pass
 
-            # Table reservations and merges (must clear before tables/sections,
-            # since they FK-reference tables)
+            # Table reservations and merges (must clear before tables/sections)
             for table in ["table_merges", "table_reservations"]:
                 try:
                     await conn.execute(f'DELETE FROM "{schema}".{table}')
@@ -94,7 +83,7 @@ async def clean_inventory():
                     await conn.execute(f'DELETE FROM "{schema}".{table}')
                 except Exception:
                     pass
-            
+
             # Hotel tables
             for table in [
                 "guest_folio",
@@ -117,6 +106,7 @@ async def clean_inventory():
             for table in [
                 "customer_visit_notes",
                 "customer_preferences",
+                "loyalty_settings",
                 "loyalty_transactions",
                 "loyalty_accounts",
                 "customers",
@@ -125,7 +115,7 @@ async def clean_inventory():
                     await conn.execute(f'DELETE FROM "{schema}".{table}')
                 except Exception:
                     pass
-                
+
             # Inventory
             for table in [
                 "po_items",
@@ -141,11 +131,6 @@ async def clean_inventory():
                     pass
 
             # Outlets — delete non-default only, keep billing settings for default
-            # Refresh tokens
-            try:
-                await conn.execute("DELETE FROM core.refresh_tokens")
-            except Exception:
-                pass
             try:
                 await conn.execute(
                     f"""
@@ -172,8 +157,15 @@ async def clean_inventory():
             except Exception:
                 pass
 
+            # Refresh tokens
+            try:
+                await conn.execute("DELETE FROM core.refresh_tokens")
+            except Exception:
+                pass
+
     finally:
         await conn.close()
+
 
 # HTTP client per test 
 
@@ -191,7 +183,6 @@ async def client():
 @pytest.fixture(autouse=True, scope="session")
 def clean_db_once():
     import asyncio
-    import asyncpg as apg
 
     async def _clean():
         conn = await asyncpg.connect(
@@ -283,7 +274,6 @@ async def registered_tenant(client, db):
         assert resp.status_code == 201, resp.text
         result = resp.json()
 
-    # Always upgrade to max tier — runs for both new and existing tenants
     await db.execute(
         "UPDATE core.tenants SET subscription_tier = 'max' WHERE slug = $1",
         "test-hotel-nepal"
@@ -393,9 +383,9 @@ async def manager_role(client, admin_token):
     assert resp.status_code == 201, resp.text
     return resp.json()
 
+
 @pytest.fixture
 async def staff_role(client, admin_token):
-    """Minimal waiter-level role — can create/view orders and view menu only."""
     resp = await client.post(
         "/api/v1/roles",
         json={
@@ -434,6 +424,7 @@ async def staff_role(client, admin_token):
     assert resp.status_code == 201, resp.text
     return resp.json()
 
+
 @pytest.fixture
 async def db():
     conn = await asyncpg.connect(
@@ -446,6 +437,7 @@ async def db():
     )
     yield conn
     await conn.close()
+
 
 @pytest.fixture
 async def staff_user(client, admin_token, staff_role, db):
@@ -466,7 +458,6 @@ async def staff_user(client, admin_token, staff_role, db):
         assert resp.status_code == 201, resp.text
         user_id = resp.json()["user_id"]
 
-    # Assign the staff role
     await client.post(
         "/api/v1/users/assign-role",
         json={"user_id": user_id, "role_template_id": str(staff_role["id"])},

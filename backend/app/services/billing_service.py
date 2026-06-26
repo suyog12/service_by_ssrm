@@ -34,7 +34,7 @@ async def _track_customer_visit(db, schema: str, bill_id: UUID):
         )
 
 
-# Billing Settings 
+# Billing Settings
 
 async def get_or_create_billing_settings(
     db, schema: str, outlet_id: UUID
@@ -88,7 +88,7 @@ async def update_billing_settings(
     return dict(row)
 
 
-# Bill Generation 
+# Bill Generation
 
 async def generate_bill(
     db, schema: str, outlet_id: UUID, data: dict, generated_by: UUID
@@ -356,24 +356,6 @@ async def apply_discount(
         applied_by,
     )
 
-    total_discount = await db.fetchval(
-        f"""
-        SELECT COALESCE(SUM(discount_amt), 0)
-        FROM "{schema}".bill_discounts WHERE bill_id = $1
-        """,
-        bill_id
-    )
-
-    await db.execute(
-        f"""
-        UPDATE "{schema}".bills
-        SET discount_amt = $1,
-            total_amount = subtotal + service_charge_amt + vat_amt - $1,
-            updated_at = NOW()
-        WHERE id = $2
-        """,
-        total_discount, bill_id
-    )
     await _recalculate_bill_totals(db, schema, bill_id)
     return await get_bill(db, schema, outlet_id, bill_id)
 
@@ -514,6 +496,8 @@ async def process_payment(
                 )
 
         await _track_customer_visit(db, schema, bill_id)
+        from app.services.loyalty_service import award_points_for_bill
+        await award_points_for_bill(db, schema, bill_id)
 
     else:
         await db.execute(
@@ -587,6 +571,8 @@ async def process_payment(
                     )
 
             await _track_customer_visit(db, schema, bill_id)
+            from app.services.loyalty_service import award_points_for_bill
+            await award_points_for_bill(db, schema, bill_id)
 
     return await get_bill(db, schema, outlet_id, bill_id)
 
@@ -618,6 +604,8 @@ async def void_bill(
         """,
         voided_by, reason, bill_id
     )
+    from app.services.loyalty_service import void_redemption
+    await void_redemption(db, schema, bill_id)
     return await get_bill(db, schema, outlet_id, bill_id)
 
 
@@ -827,7 +815,7 @@ async def get_bill_html(
     return html
 
 
-# Credit Accounts 
+# Credit Accounts
 
 async def create_credit_account(
     db, schema: str, outlet_id: UUID, data: dict
