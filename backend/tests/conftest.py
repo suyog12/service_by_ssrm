@@ -115,6 +115,29 @@ async def clean_inventory():
                     await conn.execute(f'DELETE FROM "{schema}".{table}')
                 except Exception:
                     pass
+                
+            # HR
+            for table in [
+                "shift_handovers",
+                "payroll_entries",
+                "payroll_periods",
+                "leave_requests",
+                "leave_types",
+                "attendance",
+                "shifts",
+                "tax_slabs",
+            ]:
+                try:
+                    await conn.execute(f'DELETE FROM "{schema}".{table}')
+                except Exception:
+                    pass
+                
+            # Expenses
+            for table in ["cash_register", "expense_logs", "expense_categories"]:
+                try:
+                    await conn.execute(f'DELETE FROM "{schema}".{table}')
+                except Exception:
+                    pass
 
             # Inventory
             for table in [
