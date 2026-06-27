@@ -442,6 +442,28 @@ async def create_leave_request(
         data["end_date"],
         data.get("reason"),
     )
+    # Notify admins with leave approve permission
+    try:
+        recipients = await db.fetch(
+            f"""
+            SELECT DISTINCT up.id FROM "{schema}".user_profiles up
+            JOIN "{schema}".role_permissions rp ON rp.role_template_id = up.role_template_id
+            WHERE rp.feature_code = 'hr.leave_approve' AND rp.access_level != 'none'
+            UNION
+            SELECT id FROM "{schema}".user_profiles WHERE is_admin = TRUE
+            """
+        )
+        for r in recipients:
+            await db.execute(
+                f"""
+                INSERT INTO "{schema}".notifications
+                    (user_id, event_code, title, body, reference_id, reference_type)
+                VALUES ($1, 'leave.submitted', 'Leave Request', 'A new leave request has been submitted', $2, 'leave_request')
+                """,
+                r["id"], row["id"]
+            )
+    except Exception:
+        pass
     return dict(row)
 
 
@@ -495,6 +517,22 @@ async def review_leave_request(
         """,
         status, reviewer_id, request_id
     )
+    # Notify the requesting user
+    try:
+        await db.execute(
+            f"""
+            INSERT INTO "{schema}".notifications
+                (user_id, event_code, title, body, reference_id, reference_type)
+            VALUES ($1, $2, $3, $4, $5, 'leave_request')
+            """,
+            row["user_id"],
+            f"leave.{status}",
+            f"Leave Request {status.title()}",
+            f"Your leave request has been {status}",
+            request_id
+        )
+    except Exception:
+        pass
     return dict(row)
 
 
@@ -780,6 +818,23 @@ async def approve_payroll(db, schema: str, period_id: UUID) -> dict:
         """,
         period_id
     )
+    # Notify all users with payroll entries in this period
+    try:
+        entries = await db.fetch(
+            f'SELECT user_id FROM "{schema}".payroll_entries WHERE period_id = $1',
+            period_id
+        )
+        for e in entries:
+            await db.execute(
+                f"""
+                INSERT INTO "{schema}".notifications
+                    (user_id, event_code, title, body, reference_id, reference_type)
+                VALUES ($1, 'payroll.approved', 'Payroll Approved', 'Your payroll has been approved', $2, 'payroll_period')
+                """,
+                e["user_id"], period_id
+            )
+    except Exception:
+        pass
     return dict(row)
 
 
@@ -844,6 +899,18 @@ async def create_handover(
         json.dumps([dict(t) for t in open_tables]),
         json.dumps([dict(o) for o in pending_orders]),
     )
+    # Notify incoming user
+    try:
+        await db.execute(
+            f"""
+            INSERT INTO "{schema}".notifications
+                (user_id, event_code, title, body, reference_id, reference_type)
+            VALUES ($1, 'handover.created', 'Shift Handover', 'You have a new shift handover to acknowledge', $2, 'shift_handover')
+            """,
+            data["incoming_user_id"], row["id"]
+        )
+    except Exception:
+        pass
     return dict(row)
 
 

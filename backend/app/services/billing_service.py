@@ -604,6 +604,28 @@ async def void_bill(
         """,
         voided_by, reason, bill_id
     )
+    # Notify admins with billing.void permission
+    try:
+        recipients = await db.fetch(
+            f"""
+            SELECT DISTINCT up.id FROM "{schema}".user_profiles up
+            JOIN "{schema}".role_permissions rp ON rp.role_template_id = up.role_template_id
+            WHERE rp.feature_code = 'billing.void' AND rp.access_level != 'none'
+            UNION
+            SELECT id FROM "{schema}".user_profiles WHERE is_admin = TRUE
+            """
+        )
+        for r in recipients:
+            await db.execute(
+                f"""
+                INSERT INTO "{schema}".notifications
+                    (user_id, event_code, title, body, reference_id, reference_type)
+                VALUES ($1, 'bill.voided', 'Bill Voided', $2, $3, 'bill')
+                """,
+                r["id"], f"Bill voided: {reason}", bill_id
+            )
+    except Exception:
+        pass
     from app.services.loyalty_service import void_redemption
     await void_redemption(db, schema, bill_id)
     return await get_bill(db, schema, outlet_id, bill_id)

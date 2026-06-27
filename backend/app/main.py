@@ -23,12 +23,16 @@ from app.api.v1.endpoints.offers import router as offers_router
 from app.api.v1.endpoints.loyalty import router as loyalty_router
 from app.api.v1.endpoints.expenses import router as expenses_router
 from app.api.v1.endpoints.hr import router as hr_router
+from app.api.v1.endpoints.comms import router as comms_router
+from app.core.scheduler import start_scheduler, stop_scheduler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await get_pool()
     print("Database pool initialized")
+    start_scheduler()
     yield
+    stop_scheduler()
     await close_pool()
     print("Database pool closed")
 
@@ -67,6 +71,7 @@ app.include_router(offers_router, prefix="/api/v1")
 app.include_router(loyalty_router, prefix="/api/v1")
 app.include_router(expenses_router, prefix="/api/v1")
 app.include_router(hr_router, prefix="/api/v1")
+app.include_router(comms_router, prefix="/api/v1")
 
 @app.get("/")
 async def root():

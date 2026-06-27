@@ -132,6 +132,22 @@ async def clean_inventory():
                 except Exception:
                     pass
                 
+            # Comms
+            for table in [
+                "message_read_receipts",
+                "message_edits",
+                "message_reactions",
+                "message_mentions",
+                "messages",
+                "chat_members",
+                "chat_rooms",
+                "notifications",
+            ]:
+                try:
+                    await conn.execute(f'DELETE FROM "{schema}".{table}')
+                except Exception:
+                    pass
+                
             # Expenses
             for table in ["cash_register", "expense_logs", "expense_categories"]:
                 try:

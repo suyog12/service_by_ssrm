@@ -201,6 +201,14 @@ def require_feature(feature_code: str, level: str = "view"):
         await _check_tier(feature_code, schema, db)
 
         ctx = await _build_user_context(payload, db, request)
+        # Update last_seen_at — non-blocking best effort
+        try:
+            await db.execute(
+                f'UPDATE "{schema}".user_profiles SET last_seen_at = NOW() WHERE id = $1',
+                ctx["user_id"]
+            )
+        except Exception:
+            pass
 
         # Admin bypass
         if payload["is_admin"]:

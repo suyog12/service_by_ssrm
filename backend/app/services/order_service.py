@@ -65,6 +65,31 @@ async def create_order(
         taken_by,
         data.get("notes"),
     )
+    # Notify kitchen staff
+    try:
+        recipients = await db.fetch(
+            f"""
+            SELECT DISTINCT up.id FROM "{schema}".user_profiles up
+            JOIN "{schema}".role_permissions rp ON rp.role_template_id = up.role_template_id
+            WHERE rp.feature_code = 'orders.assign_chef' AND rp.access_level != 'none'
+            UNION
+            SELECT id FROM "{schema}".user_profiles WHERE is_admin = TRUE
+            """
+        )
+        for r in recipients:
+            await db.execute(
+                f"""
+                INSERT INTO "{schema}".notifications
+                    (user_id, event_code, title, body, reference_id, reference_type)
+                VALUES ($1, 'order.created', $2, $3, $4, 'order')
+                """,
+                r["id"],
+                f"New Order",
+                f"Order {order_number} has been created",
+                row["id"]
+            )
+    except Exception:
+        pass
     result = dict(row)
     result["table_number"] = table_number
     result["item_count"] = 0

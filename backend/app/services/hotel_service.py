@@ -605,6 +605,33 @@ async def create_reservation(
         created_by,
     )
 
+    # Notify hotel.guests users if special request exists
+    if data.special_requests:
+        try:
+            recipients = await db.fetch(
+                f"""
+                SELECT DISTINCT up.id FROM "{schema}".user_profiles up
+                JOIN "{schema}".role_permissions rp ON rp.role_template_id = up.role_template_id
+                WHERE rp.feature_code = 'hotel.guests' AND rp.access_level != 'none'
+                UNION
+                SELECT id FROM "{schema}".user_profiles WHERE is_admin = TRUE
+                """
+            )
+            for r in recipients:
+                await db.execute(
+                    f"""
+                    INSERT INTO "{schema}".notifications
+                        (user_id, event_code, title, body, reference_id, reference_type)
+                    VALUES ($1, 'guest.special_request', 'Guest Special Request',
+                            $2, $3, 'hotel_reservation')
+                    """,
+                    r["id"],
+                    f"Special request: {data.special_requests}",
+                    row["id"]
+                )
+        except Exception:
+            pass
+        
     await db.execute(
         f'UPDATE "{schema}".rooms SET status = \'reserved\', updated_at = NOW() WHERE id = $1',
         data.room_id
@@ -747,7 +774,28 @@ async def check_in(reservation_id: UUID, schema: str, db: asyncpg.Connection):
         """,
         reservation_id
     )
-
+    # Notify users with hotel.checkin permission
+    try:
+        recipients = await db.fetch(
+            f"""
+            SELECT DISTINCT up.id FROM "{schema}".user_profiles up
+            JOIN "{schema}".role_permissions rp ON rp.role_template_id = up.role_template_id
+            WHERE rp.feature_code = 'hotel.checkin' AND rp.access_level != 'none'
+            UNION
+            SELECT id FROM "{schema}".user_profiles WHERE is_admin = TRUE
+            """
+        )
+        for r in recipients:
+            await db.execute(
+                f"""
+                INSERT INTO "{schema}".notifications
+                    (user_id, event_code, title, body, reference_id, reference_type)
+                VALUES ($1, 'hotel.checkin', 'Guest Checked In', 'A guest has checked in', $2, 'hotel_reservation')
+                """,
+                r["id"], reservation_id
+            )
+    except Exception:
+        pass
     return add_bs_fields(dict(row), _RESERVATION_DATE_FIELDS)
 
 
@@ -782,7 +830,28 @@ async def check_out(reservation_id: UUID, schema: str, db: asyncpg.Connection):
         f"UPDATE \"{schema}\".rooms SET status = 'cleaning', updated_at = NOW() WHERE id = $1",
         res["room_id"]
     )
-
+    # Notify users with hotel.checkin permission
+    try:
+        recipients = await db.fetch(
+            f"""
+            SELECT DISTINCT up.id FROM "{schema}".user_profiles up
+            JOIN "{schema}".role_permissions rp ON rp.role_template_id = up.role_template_id
+            WHERE rp.feature_code = 'hotel.checkin' AND rp.access_level != 'none'
+            UNION
+            SELECT id FROM "{schema}".user_profiles WHERE is_admin = TRUE
+            """
+        )
+        for r in recipients:
+            await db.execute(
+                f"""
+                INSERT INTO "{schema}".notifications
+                    (user_id, event_code, title, body, reference_id, reference_type)
+                VALUES ($1, 'hotel.checkout', 'Guest Checked Out', 'A guest has checked out', $2, 'hotel_reservation')
+                """,
+                r["id"], reservation_id
+            )
+    except Exception:
+        pass
     return {
         "reservation": add_bs_fields(dict(row), _RESERVATION_DATE_FIELDS),
         "total_charged": float(folio_total)
