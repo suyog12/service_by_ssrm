@@ -1,6 +1,7 @@
 import pytest
 from datetime import date, timedelta
 from tests.conftest import auth
+from datetime import datetime, timezone, timedelta
 
 
 class TestHRSettingsPositive:
@@ -208,7 +209,8 @@ class TestAttendancePositive:
         await client.post(
             "/api/v1/hr/attendance/check-in", json={}, headers=auth(admin_token)
         )
-        today = str(date.today())
+        nepal_tz = timezone(timedelta(hours=5, minutes=45))
+        today = datetime.now(nepal_tz).date().isoformat()
         resp = await client.get(
             f"/api/v1/hr/attendance?date_from={today}&date_to={today}",
             headers=auth(admin_token)

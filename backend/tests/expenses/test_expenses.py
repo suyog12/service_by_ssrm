@@ -1,5 +1,6 @@
 import pytest
 from datetime import date
+from datetime import datetime, timezone, timedelta
 from tests.conftest import auth
 
 
@@ -181,7 +182,7 @@ class TestExpenseLogPositive:
         )
 
     async def test_filter_by_date_range(self, client, admin_token, expense_log):
-        today = str(date.today())
+        today = datetime.now(timezone.utc).date().isoformat()
         resp = await client.get(
             f"/api/v1/expenses?date_from={today}&date_to={today}",
             headers=auth(admin_token)
@@ -332,7 +333,8 @@ class TestCashRegisterPositive:
             json={"action": "open", "cash_amount": "4000.00"},
             headers=auth(admin_token)
         )
-        today = str(date.today())
+        nepal_tz = timezone(timedelta(hours=5, minutes=45))
+        today = datetime.now(nepal_tz).date().isoformat()
         resp = await client.get(
             f"/api/v1/cash-register?date_filter={today}",
             headers=auth(admin_token)

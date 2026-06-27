@@ -38,11 +38,11 @@ jobs:
       DEBUG:       "False"
 
       # Email 
-      SMTP_HOST:          ${{ secrets.SMTP_HOST }}
-      SMTP_PORT:          587
-      SMTP_USER:          ${{ secrets.SMTP_USER }}
-      SMTP_PASSWORD:      ${{ secrets.SMTP_PASSWORD }}
-      EMAILS_FROM_EMAIL:  ${{ secrets.EMAILS_FROM_EMAIL }}
+      SMTP_HOST:         ${{ secrets.SMTP_HOST }}
+      SMTP_PORT:         587
+      SMTP_USER:         ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD:     ${{ secrets.SMTP_PASSWORD }}
+      EMAILS_FROM_EMAIL: ${{ secrets.EMAILS_FROM_EMAIL }}
 
       # Encryption 
       ENCRYPTION_SECRET: ${{ secrets.ENCRYPTION_SECRET }}
@@ -58,15 +58,12 @@ jobs:
       TESTING: "1"
 
     steps:
-      
-      # 1. Checkout
-      
+
+      # 1. Checkout 
       - name: Checkout code
         uses: actions/checkout@v4
 
-      
-      # 2. Python setup with pip cache
-      
+      # 2. Python + pip cache 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
@@ -74,32 +71,26 @@ jobs:
           cache: "pip"
           cache-dependency-path: backend/requirements.txt
 
-      
-      # 3. Install dependencies
-      
+      # 3. Install dependencies 
       - name: Install dependencies
         working-directory: backend
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      
-      # 4. Verify critical imports before running tests
-      
+      # 4. Verify critical imports 
       - name: Verify critical imports
         working-directory: backend
         run: |
-          python -c "import fastapi; print('fastapi OK')"
-          python -c "import asyncpg; print('asyncpg OK')"
-          python -c "import cryptography; print('cryptography OK')"
-          python -c "import boto3; print('boto3 OK')"
-          python -c "import apscheduler; print('apscheduler OK')"
-          python -c "from app.core.encryption import encrypt, decrypt; print('encryption OK')"
-          python -c "from app.core.r2 import get_r2_client; print('r2 OK')"
+          python -c "import fastapi;      print('PASS fastapi')"
+          python -c "import asyncpg;      print('PASS asyncpg')"
+          python -c "import cryptography; print('PASS cryptography')"
+          python -c "import boto3;        print('PASS boto3')"
+          python -c "import apscheduler;  print('PASS apscheduler')"
+          python -c "from app.core.encryption import encrypt, decrypt; print('PASS encryption module')"
+          python -c "from app.core.r2 import get_r2_client;            print('PASS r2 module')"
 
-      
-      # 5. Run full test suite
-      
+      # 5. Run full test suite 
       - name: Run tests
         working-directory: backend
         run: |
@@ -110,9 +101,7 @@ jobs:
             -p no:warnings \
             --timeout=300
 
-      
-      # 6. Find Excel report
-      
+      # 6. Find Excel report 
       - name: Find Excel report
         id: find_excel
         working-directory: backend
@@ -127,38 +116,87 @@ jobs:
             echo "excel_file=$EXCEL" >> $GITHUB_OUTPUT
           fi
 
-      
-      # 7. Parse test counts from JUnit XML
-      
+      # 7. Parse results and extract failure details 
       - name: Parse test results
         id: parse_results
         if: always()
         working-directory: backend
         run: |
-          if [ -f test-results.xml ]; then
-            TOTAL=$(grep -oP 'tests="\K[0-9]+' test-results.xml | head -1 || echo "0")
-            FAILED=$(grep -oP 'failures="\K[0-9]+' test-results.xml | head -1 || echo "0")
-            ERRORS=$(grep -oP 'errors="\K[0-9]+' test-results.xml | head -1 || echo "0")
-            SKIPPED=$(grep -oP 'skipped="\K[0-9]+' test-results.xml | head -1 || echo "0")
-            PASSED=$((TOTAL - FAILED - ERRORS - SKIPPED))
-            echo "total=$TOTAL"     >> $GITHUB_OUTPUT
-            echo "passed=$PASSED"   >> $GITHUB_OUTPUT
-            echo "failed=$FAILED"   >> $GITHUB_OUTPUT
-            echo "errors=$ERRORS"   >> $GITHUB_OUTPUT
-            echo "skipped=$SKIPPED" >> $GITHUB_OUTPUT
-            echo "Total: $TOTAL | Passed: $PASSED | Failed: $FAILED | Errors: $ERRORS"
-          else
+          if [ ! -f test-results.xml ]; then
             echo "No test-results.xml found"
-            echo "total=0"   >> $GITHUB_OUTPUT
-            echo "passed=0"  >> $GITHUB_OUTPUT
-            echo "failed=0"  >> $GITHUB_OUTPUT
-            echo "errors=0"  >> $GITHUB_OUTPUT
-            echo "skipped=0" >> $GITHUB_OUTPUT
+            echo "total=0"    >> $GITHUB_OUTPUT
+            echo "passed=0"   >> $GITHUB_OUTPUT
+            echo "failed=0"   >> $GITHUB_OUTPUT
+            echo "errors=0"   >> $GITHUB_OUTPUT
+            echo "skipped=0"  >> $GITHUB_OUTPUT
+            echo "has_failures=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
-      
-      # 8. Upload artifacts (always, even on failure)
-      
+          TOTAL=$(grep   -oP 'tests="\K[0-9]+'    test-results.xml | head -1 || echo "0")
+          FAILED=$(grep  -oP 'failures="\K[0-9]+' test-results.xml | head -1 || echo "0")
+          ERRORS=$(grep  -oP 'errors="\K[0-9]+'   test-results.xml | head -1 || echo "0")
+          SKIPPED=$(grep -oP 'skipped="\K[0-9]+'  test-results.xml | head -1 || echo "0")
+          PASSED=$((TOTAL - FAILED - ERRORS - SKIPPED))
+
+          echo "total=$TOTAL"     >> $GITHUB_OUTPUT
+          echo "passed=$PASSED"   >> $GITHUB_OUTPUT
+          echo "failed=$FAILED"   >> $GITHUB_OUTPUT
+          echo "errors=$ERRORS"   >> $GITHUB_OUTPUT
+          echo "skipped=$SKIPPED" >> $GITHUB_OUTPUT
+
+          echo "Results: Total=$TOTAL Passed=$PASSED Failed=$FAILED Errors=$ERRORS Skipped=$SKIPPED"
+
+          python3 - <<'PYEOF'
+          import xml.etree.ElementTree as ET, os
+
+          tree = ET.parse("test-results.xml")
+          root = tree.getroot()
+
+          failures = []
+          for tc in root.iter("testcase"):
+            for child in tc:
+              if child.tag in ("failure", "error"):
+                classname = tc.get("classname", "")
+                testname  = tc.get("name", "")
+                full_name = f"{classname}::{testname}"
+                tag       = child.tag.upper()
+                msg_raw   = (child.get("message") or child.text or "").strip()
+                msg_first = next((l.strip() for l in msg_raw.splitlines() if l.strip()), "No message")
+                msg_short = msg_first[:150] + ("..." if len(msg_first) > 150 else "")
+                failures.append((tag, full_name, msg_short))
+
+          # Plain text for email body
+          plain_lines = []
+          if failures:
+            plain_lines.append(f"{'No.':<5} {'Type':<10} {'Test':<75} {'Reason'}")
+            plain_lines.append("-" * 140)
+            for i, (tag, name, msg) in enumerate(failures, 1):
+              plain_lines.append(f"{i:<5} {tag:<10} {name:<75} {msg}")
+          else:
+            plain_lines.append("No failures. All tests passed.")
+
+          with open("failures_plain.txt", "w") as f:
+            f.write("\n".join(plain_lines))
+
+          # Markdown table for GitHub job summary
+          md_lines = []
+          if failures:
+            md_lines.append("| No. | Type | Test | Reason |")
+            md_lines.append("|-----|------|------|--------|")
+            for i, (tag, name, msg) in enumerate(failures, 1):
+              md_lines.append(f"| {i} | {tag} | `{name}` | {msg} |")
+          else:
+            md_lines.append("No failures detected. All tests passed.")
+
+          with open("failures_md.txt", "w") as f:
+            f.write("\n".join(md_lines))
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+            fh.write(f"has_failures={'true' if failures else 'false'}\n")
+          PYEOF
+
+      # 8. Upload artifacts 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4
         if: always()
@@ -167,13 +205,13 @@ jobs:
           path: |
             backend/test_results_*.xlsx
             backend/test-results.xml
+            backend/failures_plain.txt
+            backend/failures_md.txt
           retention-days: 90
           if-no-files-found: warn
 
-      
-      # 9. Send email with results
-      
-      - name: Send email with results
+      # 9. Send email report 
+      - name: Send email report
         if: always() && steps.find_excel.outputs.excel_file != ''
         uses: dawidd6/action-send-mail@v3
         with:
@@ -181,63 +219,280 @@ jobs:
           server_port: 587
           username: ${{ secrets.SMTP_USER }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: >
-            Service by SSRM — Run #${{ github.run_number }}
-            (${{ job.status == 'success' && ' PASSED' || ' FAILED' }})
+          subject: >-
+            [Service by SSRM] Run #${{ github.run_number }} —
+            ${{ steps.parse_results.outputs.has_failures == 'false' && 'ALL TESTS PASSED' || 'FAILURES DETECTED' }}
+            (${{ steps.parse_results.outputs.passed }}/${{ steps.parse_results.outputs.total }} passed)
           to: mainalisuyog0@gmail.com
           from: "Service by SSRM CI <${{ secrets.SMTP_USER }}>"
-          body: |
-            ═══════════════════════════════════════════
-            SERVICE BY SSRM — TEST SUITE RESULTS
-            ═══════════════════════════════════════════
+          html_body: |
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <style>
+                body {
+                  font-family: Arial, sans-serif;
+                  font-size: 14px;
+                  color: #1a1a1a;
+                  background-color: #f4f4f4;
+                  margin: 0;
+                  padding: 0;
+                }
+                .wrapper {
+                  max-width: 720px;
+                  margin: 32px auto;
+                  background-color: #ffffff;
+                  border: 1px solid #d0d0d0;
+                  border-radius: 4px;
+                  overflow: hidden;
+                }
+                .header {
+                  background-color: ${{ steps.parse_results.outputs.has_failures == 'false' && '#1a7a3c' || '#a61c1c' }};
+                  color: #ffffff;
+                  padding: 24px 32px;
+                }
+                .header h1 {
+                  margin: 0 0 4px 0;
+                  font-size: 20px;
+                  font-weight: bold;
+                  letter-spacing: 0.5px;
+                }
+                .header p {
+                  margin: 0;
+                  font-size: 13px;
+                  opacity: 0.85;
+                }
+                .status-banner {
+                  background-color: ${{ steps.parse_results.outputs.has_failures == 'false' && '#eaf7ee' || '#fdf0f0' }};
+                  border-left: 4px solid ${{ steps.parse_results.outputs.has_failures == 'false' && '#1a7a3c' || '#a61c1c' }};
+                  padding: 14px 32px;
+                  font-size: 14px;
+                  font-weight: bold;
+                  color: ${{ steps.parse_results.outputs.has_failures == 'false' && '#1a7a3c' || '#a61c1c' }};
+                }
+                .section {
+                  padding: 24px 32px;
+                  border-bottom: 1px solid #ebebeb;
+                }
+                .section:last-of-type {
+                  border-bottom: none;
+                }
+                .section h2 {
+                  margin: 0 0 16px 0;
+                  font-size: 13px;
+                  font-weight: bold;
+                  text-transform: uppercase;
+                  letter-spacing: 0.8px;
+                  color: #555555;
+                  border-bottom: 1px solid #ebebeb;
+                  padding-bottom: 8px;
+                }
+                table {
+                  width: 100%;
+                  border-collapse: collapse;
+                  font-size: 13px;
+                }
+                table th {
+                  text-align: left;
+                  padding: 8px 12px;
+                  background-color: #f0f0f0;
+                  color: #333333;
+                  font-weight: bold;
+                  border: 1px solid #d8d8d8;
+                }
+                table td {
+                  padding: 8px 12px;
+                  border: 1px solid #e0e0e0;
+                  color: #1a1a1a;
+                  vertical-align: top;
+                }
+                table tr:nth-child(even) td {
+                  background-color: #fafafa;
+                }
+                .badge {
+                  display: inline-block;
+                  padding: 2px 8px;
+                  border-radius: 3px;
+                  font-size: 12px;
+                  font-weight: bold;
+                }
+                .badge-pass  { background-color: #eaf7ee; color: #1a7a3c; }
+                .badge-fail  { background-color: #fdf0f0; color: #a61c1c; }
+                .badge-skip  { background-color: #f5f5f5; color: #777777; }
+                .badge-error { background-color: #fff8e6; color: #b06000; }
+                .count-pass  { color: #1a7a3c; font-weight: bold; }
+                .count-fail  { color: #a61c1c; font-weight: bold; }
+                .count-error { color: #b06000; font-weight: bold; }
+                .count-skip  { color: #777777; font-weight: bold; }
+                .count-total { color: #1a1a1a; font-weight: bold; }
+                .link-btn {
+                  display: inline-block;
+                  margin-top: 8px;
+                  margin-right: 8px;
+                  padding: 8px 16px;
+                  background-color: #1a3a5c;
+                  color: #ffffff;
+                  text-decoration: none;
+                  border-radius: 3px;
+                  font-size: 13px;
+                  font-weight: bold;
+                }
+                .footer {
+                  background-color: #f4f4f4;
+                  padding: 16px 32px;
+                  font-size: 11px;
+                  color: #888888;
+                  text-align: center;
+                  border-top: 1px solid #d0d0d0;
+                }
+                code {
+                  font-family: "Courier New", monospace;
+                  font-size: 12px;
+                  background-color: #f0f0f0;
+                  padding: 1px 4px;
+                  border-radius: 2px;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="wrapper">
 
-            Status:   ${{ job.status == 'success' && ' ALL PASSED' || ' FAILURES DETECTED' }}
-            Run:      #${{ github.run_number }}
-            Branch:   ${{ github.ref_name }}
-            Commit:   ${{ github.sha }}
-            Trigger:  ${{ github.event_name }}
+                <!-- Header -->
+                <div class="header">
+                  <h1>Service by SSRM</h1>
+                  <p>Automated Test Report &mdash; Run #${{ github.run_number }}</p>
+                </div>
 
-            
-            TEST COUNTS
-            
-            Total:    ${{ steps.parse_results.outputs.total }}
-            Passed:   ${{ steps.parse_results.outputs.passed }}
-            Failed:   ${{ steps.parse_results.outputs.failed }}
-            Errors:   ${{ steps.parse_results.outputs.errors }}
-            Skipped:  ${{ steps.parse_results.outputs.skipped }}
+                <!-- Status Banner -->
+                <div class="status-banner">
+                  ${{ steps.parse_results.outputs.has_failures == 'false' && 'PASSED &mdash; All tests completed successfully.' || 'FAILED &mdash; One or more tests did not pass. Immediate review required.' }}
+                </div>
 
-            
-            LINKS
-            
-            View run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                <!-- Run Details -->
+                <div class="section">
+                  <h2>Run Details</h2>
+                  <table>
+                    <tr><th style="width:160px;">Field</th><th>Value</th></tr>
+                    <tr><td>Run Number</td>   <td><strong>#${{ github.run_number }}</strong></td></tr>
+                    <tr><td>Branch</td>       <td><code>${{ github.ref_name }}</code></td></tr>
+                    <tr><td>Commit SHA</td>   <td><code>${{ github.sha }}</code></td></tr>
+                    <tr><td>Triggered By</td> <td>${{ github.event_name }}</td></tr>
+                    <tr><td>Workflow</td>     <td>${{ github.workflow }}</td></tr>
+                    <tr><td>Repository</td>   <td>${{ github.repository }}</td></tr>
+                  </table>
+                </div>
 
-            The full Excel report is attached.
-            ═══════════════════════════════════════════
+                <!-- Test Summary -->
+                <div class="section">
+                  <h2>Test Summary</h2>
+                  <table>
+                    <tr>
+                      <th style="width:160px;">Result</th>
+                      <th>Count</th>
+                    </tr>
+                    <tr>
+                      <td><span class="badge badge-pass">Passed</span></td>
+                      <td class="count-pass">${{ steps.parse_results.outputs.passed }}</td>
+                    </tr>
+                    <tr>
+                      <td><span class="badge badge-fail">Failed</span></td>
+                      <td class="count-fail">${{ steps.parse_results.outputs.failed }}</td>
+                    </tr>
+                    <tr>
+                      <td><span class="badge badge-error">Errors</span></td>
+                      <td class="count-error">${{ steps.parse_results.outputs.errors }}</td>
+                    </tr>
+                    <tr>
+                      <td><span class="badge badge-skip">Skipped</span></td>
+                      <td class="count-skip">${{ steps.parse_results.outputs.skipped }}</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Total</strong></td>
+                      <td class="count-total">${{ steps.parse_results.outputs.total }}</td>
+                    </tr>
+                  </table>
+                </div>
+
+                <!-- Failed Tests -->
+                <div class="section">
+                  <h2>Failed and Errored Tests</h2>
+                  ${{ steps.parse_results.outputs.has_failures == 'false'
+                    && '<p style="color:#1a7a3c;font-weight:bold;">No failures detected. All tests passed.</p>'
+                    || '<p>The full failure table is available in <strong>failures_plain.txt</strong> attached to the run artifacts. See the links below to access it.</p>' }}
+                </div>
+
+                <!-- Artifacts -->
+                <div class="section">
+                  <h2>Artifacts</h2>
+                  <table>
+                    <tr><th style="width:160px;">File</th><th>Description</th></tr>
+                    <tr><td>Excel report</td>    <td>Full test results with pass/fail breakdown per test</td></tr>
+                    <tr><td>test-results.xml</td><td>Machine-readable JUnit XML output</td></tr>
+                    <tr><td>failures_plain.txt</td><td>Plain text table of all failed and errored tests with reasons</td></tr>
+                    <tr><td>failures_md.txt</td>  <td>Markdown table of failures for reference</td></tr>
+                  </table>
+                </div>
+
+                <!-- Links -->
+                <div class="section">
+                  <h2>Links</h2>
+                  <a class="link-btn" href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Run</a>
+                  <a class="link-btn" href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts">Download Artifacts</a>
+                </div>
+
+                <!-- Footer -->
+                <div class="footer">
+                  This is an automated message generated by the Service by SSRM CI pipeline. Do not reply to this email.
+                </div>
+
+              </div>
+            </body>
+            </html>
           attachments: backend/${{ steps.find_excel.outputs.excel_file }}
 
-      
-      # 10. Write GitHub job summary
-      
+      # 10. Write GitHub job summary 
       - name: Write job summary
         if: always()
+        working-directory: backend
         run: |
-          echo "## Test Results — Run #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Status | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Branch | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Test Counts" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Result | Count |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Passed | ${{ steps.parse_results.outputs.passed }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Failed | ${{ steps.parse_results.outputs.failed }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Errors | ${{ steps.parse_results.outputs.errors }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Skipped | ${{ steps.parse_results.outputs.skipped }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Total | ${{ steps.parse_results.outputs.total }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Excel report and JUnit XML available in [run artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})." >> $GITHUB_STEP_SUMMARY
+          OVERALL="${{ steps.parse_results.outputs.has_failures == 'false' && 'PASSED' || 'FAILED' }}"
+
+          echo "# Service by SSRM — Test Report"                                                      >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                                       >> $GITHUB_STEP_SUMMARY
+          echo "**Run #${{ github.run_number }} — ${OVERALL}**"                                       >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                                       >> $GITHUB_STEP_SUMMARY
+
+          echo "## Run Details"                                                                        >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                                       >> $GITHUB_STEP_SUMMARY
+          echo "| Field        | Value |"                                                              >> $GITHUB_STEP_SUMMARY
+          echo "|--------------|-------|"                                                               >> $GITHUB_STEP_SUMMARY
+          echo "| Branch       | \`${{ github.ref_name }}\` |"                                        >> $GITHUB_STEP_SUMMARY
+          echo "| Commit       | \`${{ github.sha }}\` |"                                             >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered By | ${{ github.event_name }} |"                                          >> $GITHUB_STEP_SUMMARY
+          echo "| Status       | ${OVERALL} |"                                                         >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                                       >> $GITHUB_STEP_SUMMARY
+
+          echo "## Test Summary"                                                                       >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                                       >> $GITHUB_STEP_SUMMARY
+          echo "| Result  | Count |"                                                                   >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|"                                                                    >> $GITHUB_STEP_SUMMARY
+          echo "| Passed  | ${{ steps.parse_results.outputs.passed }} |"                              >> $GITHUB_STEP_SUMMARY
+          echo "| Failed  | ${{ steps.parse_results.outputs.failed }} |"                              >> $GITHUB_STEP_SUMMARY
+          echo "| Errors  | ${{ steps.parse_results.outputs.errors }} |"                              >> $GITHUB_STEP_SUMMARY
+          echo "| Skipped | ${{ steps.parse_results.outputs.skipped }} |"                             >> $GITHUB_STEP_SUMMARY
+          echo "| Total   | ${{ steps.parse_results.outputs.total }} |"                               >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                                       >> $GITHUB_STEP_SUMMARY
+
+          echo "## Failed and Errored Tests"                                                           >> $GITHUB_STEP_SUMMARY
+          echo ""                                                                                       >> $GITHUB_STEP_SUMMARY
+          if [ -f failures_md.txt ]; then
+            cat failures_md.txt                                                                        >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No failure details available."                                                       >> $GITHUB_STEP_SUMMARY
+          fi
+          echo ""                                                                                       >> $GITHUB_STEP_SUMMARY
+
+          echo "---"                                                                                    >> $GITHUB_STEP_SUMMARY
+          echo "Artifacts: [View run artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts)" >> $GITHUB_STEP_SUMMARY
