@@ -299,7 +299,7 @@ async def list_cash_register(
         rows = await db.fetch(
             f"""
             SELECT * FROM "{schema}".cash_register
-            WHERE outlet_id = $1 AND created_at::date = $2
+            WHERE outlet_id = $1 AND (created_at AT TIME ZONE 'Asia/Kathmandu')::date = $2
             ORDER BY created_at DESC
             """,
             outlet_id, date_filter

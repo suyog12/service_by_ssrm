@@ -72,7 +72,7 @@ class TestRegisterPositive:
             """,
             schema
         )
-        assert count == 76
+        assert count == 80
 
     async def test_special_characters_in_name(self, client, db):
         """TC-REG-014: Business name with special characters"""

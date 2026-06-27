@@ -291,11 +291,11 @@ async def list_attendance(
         values.append(user_id)
         idx += 1
     if date_from:
-        conditions.append(f"created_at::date >= ${idx}")
+        conditions.append(f"(created_at AT TIME ZONE 'Asia/Kathmandu')::date >= ${idx}")
         values.append(date_from)
         idx += 1
     if date_to:
-        conditions.append(f"created_at::date <= ${idx}")
+        conditions.append(f"(created_at AT TIME ZONE 'Asia/Kathmandu')::date <= ${idx}")
         values.append(date_to)
         idx += 1
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
