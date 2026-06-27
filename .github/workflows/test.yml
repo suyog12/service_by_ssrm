@@ -183,7 +183,7 @@ jobs:
           password: ${{ secrets.SMTP_PASSWORD }}
           subject: >
             Service by SSRM — Run #${{ github.run_number }}
-            (${{ job.status == 'success' && '✅ PASSED' || '❌ FAILED' }})
+            (${{ job.status == 'success' && ' PASSED' || ' FAILED' }})
           to: mainalisuyog0@gmail.com
           from: "Service by SSRM CI <${{ secrets.SMTP_USER }}>"
           body: |
@@ -191,7 +191,7 @@ jobs:
             SERVICE BY SSRM — TEST SUITE RESULTS
             ═══════════════════════════════════════════
 
-            Status:   ${{ job.status == 'success' && '✅ ALL PASSED' || '❌ FAILURES DETECTED' }}
+            Status:   ${{ job.status == 'success' && ' ALL PASSED' || ' FAILURES DETECTED' }}
             Run:      #${{ github.run_number }}
             Branch:   ${{ github.ref_name }}
             Commit:   ${{ github.sha }}
