@@ -16,46 +16,103 @@ jobs:
   test:
     name: Run Full Test Suite
     runs-on: ubuntu-latest
+    timeout-minutes: 120
 
     env:
-      DB_HOST: ${{ secrets.DB_HOST }}
-      DB_PORT: ${{ secrets.DB_PORT }}
-      DB_USER: ${{ secrets.DB_USER }}
+      # Database 
+      DB_HOST:     ${{ secrets.DB_HOST }}
+      DB_PORT:     ${{ secrets.DB_PORT }}
+      DB_USER:     ${{ secrets.DB_USER }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      DB_NAME: ${{ secrets.DB_NAME }}
-      JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
-      JWT_ALGORITHM: HS256
+      DB_NAME:     ${{ secrets.DB_NAME }}
+
+      # Auth 
+      JWT_SECRET_KEY:                  ${{ secrets.JWT_SECRET_KEY }}
+      JWT_ALGORITHM:                   HS256
       JWT_ACCESS_TOKEN_EXPIRE_MINUTES: 30
-      JWT_REFRESH_TOKEN_EXPIRE_DAYS: 7
-      APP_NAME: Service by SSRM
-      APP_VERSION: 1.0.0
-      DEBUG: "False"
-      SMTP_HOST: ${{ secrets.SMTP_HOST }}
-      SMTP_PORT: 587
-      SMTP_USER: ${{ secrets.SMTP_USER }}
-      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-      EMAILS_FROM_EMAIL: ${{ secrets.EMAILS_FROM_EMAIL }}
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS:   7
+
+      # App 
+      APP_NAME:    "Service by SSRM"
+      APP_VERSION: "1.0.0"
+      DEBUG:       "False"
+
+      # Email 
+      SMTP_HOST:          ${{ secrets.SMTP_HOST }}
+      SMTP_PORT:          587
+      SMTP_USER:          ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD:      ${{ secrets.SMTP_PASSWORD }}
+      EMAILS_FROM_EMAIL:  ${{ secrets.EMAILS_FROM_EMAIL }}
+
+      # Encryption 
+      ENCRYPTION_SECRET: ${{ secrets.ENCRYPTION_SECRET }}
+
+      # Cloudflare R2 
+      R2_ACCOUNT_ID:        ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET_NAME:       ${{ secrets.R2_BUCKET_NAME }}
+      R2_PUBLIC_URL:        ${{ secrets.R2_PUBLIC_URL }}
+
+      # Test mode (disables APScheduler) 
+      TESTING: "1"
 
     steps:
+      
+      # 1. Checkout
+      
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      
+      # 2. Python setup with pip cache
+      
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
           cache-dependency-path: backend/requirements.txt
 
+      
+      # 3. Install dependencies
+      
       - name: Install dependencies
         working-directory: backend
-        run: pip install -r requirements.txt
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Run tests and generate Excel report
+      
+      # 4. Verify critical imports before running tests
+      
+      - name: Verify critical imports
         working-directory: backend
         run: |
-          pytest tests/ -v --tb=short --junitxml=test-results.xml
+          python -c "import fastapi; print('fastapi OK')"
+          python -c "import asyncpg; print('asyncpg OK')"
+          python -c "import cryptography; print('cryptography OK')"
+          python -c "import boto3; print('boto3 OK')"
+          python -c "import apscheduler; print('apscheduler OK')"
+          python -c "from app.core.encryption import encrypt, decrypt; print('encryption OK')"
+          python -c "from app.core.r2 import get_r2_client; print('r2 OK')"
 
+      
+      # 5. Run full test suite
+      
+      - name: Run tests
+        working-directory: backend
+        run: |
+          pytest tests/ \
+            -v \
+            --tb=short \
+            --junitxml=test-results.xml \
+            -p no:warnings \
+            --timeout=300
+
+      
+      # 6. Find Excel report
+      
       - name: Find Excel report
         id: find_excel
         working-directory: backend
@@ -63,13 +120,45 @@ jobs:
         run: |
           EXCEL=$(ls test_results_*.xlsx 2>/dev/null | tail -1)
           if [ -z "$EXCEL" ]; then
-            echo "No Excel file found"
+            echo "No Excel report found"
             echo "excel_file=" >> $GITHUB_OUTPUT
           else
-            echo "excel_file=$EXCEL" >> $GITHUB_OUTPUT
             echo "Found: $EXCEL"
+            echo "excel_file=$EXCEL" >> $GITHUB_OUTPUT
           fi
 
+      
+      # 7. Parse test counts from JUnit XML
+      
+      - name: Parse test results
+        id: parse_results
+        if: always()
+        working-directory: backend
+        run: |
+          if [ -f test-results.xml ]; then
+            TOTAL=$(grep -oP 'tests="\K[0-9]+' test-results.xml | head -1 || echo "0")
+            FAILED=$(grep -oP 'failures="\K[0-9]+' test-results.xml | head -1 || echo "0")
+            ERRORS=$(grep -oP 'errors="\K[0-9]+' test-results.xml | head -1 || echo "0")
+            SKIPPED=$(grep -oP 'skipped="\K[0-9]+' test-results.xml | head -1 || echo "0")
+            PASSED=$((TOTAL - FAILED - ERRORS - SKIPPED))
+            echo "total=$TOTAL"     >> $GITHUB_OUTPUT
+            echo "passed=$PASSED"   >> $GITHUB_OUTPUT
+            echo "failed=$FAILED"   >> $GITHUB_OUTPUT
+            echo "errors=$ERRORS"   >> $GITHUB_OUTPUT
+            echo "skipped=$SKIPPED" >> $GITHUB_OUTPUT
+            echo "Total: $TOTAL | Passed: $PASSED | Failed: $FAILED | Errors: $ERRORS"
+          else
+            echo "No test-results.xml found"
+            echo "total=0"   >> $GITHUB_OUTPUT
+            echo "passed=0"  >> $GITHUB_OUTPUT
+            echo "failed=0"  >> $GITHUB_OUTPUT
+            echo "errors=0"  >> $GITHUB_OUTPUT
+            echo "skipped=0" >> $GITHUB_OUTPUT
+          fi
+
+      
+      # 8. Upload artifacts (always, even on failure)
+      
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4
         if: always()
@@ -79,7 +168,11 @@ jobs:
             backend/test_results_*.xlsx
             backend/test-results.xml
           retention-days: 90
+          if-no-files-found: warn
 
+      
+      # 9. Send email with results
+      
       - name: Send email with results
         if: always() && steps.find_excel.outputs.excel_file != ''
         uses: dawidd6/action-send-mail@v3
@@ -88,31 +181,63 @@ jobs:
           server_port: 587
           username: ${{ secrets.SMTP_USER }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "Service by SSRM — Tests #${{ github.run_number }} (${{ job.status }})"
+          subject: >
+            Service by SSRM — Run #${{ github.run_number }}
+            (${{ job.status == 'success' && '✅ PASSED' || '❌ FAILED' }})
           to: mainalisuyog0@gmail.com
           from: "Service by SSRM CI <${{ secrets.SMTP_USER }}>"
           body: |
-            Test run completed for Service by SSRM.
+            ═══════════════════════════════════════════
+            SERVICE BY SSRM — TEST SUITE RESULTS
+            ═══════════════════════════════════════════
 
-            Branch:     ${{ github.ref_name }}
-            Commit:     ${{ github.sha }}
-            Run:        #${{ github.run_number }}
-            Status:     ${{ job.status }}
-            Triggered:  ${{ github.event_name }}
+            Status:   ${{ job.status == 'success' && '✅ ALL PASSED' || '❌ FAILURES DETECTED' }}
+            Run:      #${{ github.run_number }}
+            Branch:   ${{ github.ref_name }}
+            Commit:   ${{ github.sha }}
+            Trigger:  ${{ github.event_name }}
+
+            
+            TEST COUNTS
+            
+            Total:    ${{ steps.parse_results.outputs.total }}
+            Passed:   ${{ steps.parse_results.outputs.passed }}
+            Failed:   ${{ steps.parse_results.outputs.failed }}
+            Errors:   ${{ steps.parse_results.outputs.errors }}
+            Skipped:  ${{ steps.parse_results.outputs.skipped }}
+
+            
+            LINKS
+            
+            View run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
             The full Excel report is attached.
-
-            View run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            ═══════════════════════════════════════════
           attachments: backend/${{ steps.find_excel.outputs.excel_file }}
 
+      
+      # 10. Write GitHub job summary
+      
       - name: Write job summary
         if: always()
         run: |
           echo "## Test Results — Run #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Branch | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Status | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Excel report and JUnit XML available in run artifacts." >> $GITHUB_STEP_SUMMARY
+          echo "### Test Counts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Result | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Passed | ${{ steps.parse_results.outputs.passed }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | ${{ steps.parse_results.outputs.failed }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Errors | ${{ steps.parse_results.outputs.errors }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Skipped | ${{ steps.parse_results.outputs.skipped }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Total | ${{ steps.parse_results.outputs.total }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Excel report and JUnit XML available in [run artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})." >> $GITHUB_STEP_SUMMARY
