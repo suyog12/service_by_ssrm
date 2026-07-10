@@ -4,6 +4,7 @@ import asyncpg
 from app.utils.password import hash_password
 from app.schemas.auth import TenantRegisterRequest, RegisterResponse
 from app.utils.email import send_registration_confirmation_email
+from app.services.subscription_service import initialize_trial
 
 
 def slugify(name: str) -> str:
@@ -125,7 +126,7 @@ async def register_tenant(
         f'INSERT INTO "{schema_name}".hr_settings DEFAULT VALUES'
     )
 
-    # Create default outlet — represents the main business itself
+    # Create default outlet
     outlet_type = "hotel" if data.business_type == "hotel" else "restaurant"
 
     outlet = await db.fetchrow(
@@ -149,6 +150,9 @@ async def register_tenant(
         """,
         outlet_id
     )
+
+    # Initialize trial subscription
+    await initialize_trial(db, tenant_id=tenant_id, schema=schema_name)
 
     send_registration_confirmation_email(
         to_email=data.admin_email,

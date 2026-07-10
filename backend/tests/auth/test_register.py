@@ -2,6 +2,42 @@ import pytest
 from tests.conftest import TEST_BUSINESS, TEST_BUSINESS_B
 
 
+async def _cleanup_tenant(db, slug: str = None, schema: str = None):
+    """Helper to safely delete a tenant and all its dependent data."""
+    if slug:
+        t = await db.fetchrow(
+            "SELECT id, schema_name FROM core.tenants WHERE slug = $1", slug
+        )
+    elif schema:
+        t = await db.fetchrow(
+            "SELECT id, schema_name FROM core.tenants WHERE schema_name = $1", schema
+        )
+    else:
+        return
+    if not t:
+        return
+    await db.execute(
+        "DELETE FROM core.subscription_events WHERE tenant_id = $1", t["id"]
+    )
+    await db.execute(
+        "DELETE FROM core.payment_receipts WHERE tenant_id = $1", t["id"]
+    )
+    await db.execute(
+        "DELETE FROM core.refresh_tokens WHERE user_id IN "
+        "(SELECT id FROM core.users WHERE tenant_id = $1)",
+        t["id"]
+    )
+    await db.execute(
+        "DELETE FROM core.users WHERE tenant_id = $1", t["id"]
+    )
+    await db.execute(
+        f'DROP SCHEMA IF EXISTS "{t["schema_name"]}" CASCADE'
+    )
+    await db.execute(
+        "DELETE FROM core.tenants WHERE id = $1", t["id"]
+    )
+
+
 class TestRegisterPositive:
     async def test_register_valid_business(self, client):
         """TC-REG-002: Register valid new business returns 201"""
@@ -49,8 +85,7 @@ class TestRegisterPositive:
         payload["admin_email"] = "purerest@test.com"
         resp = await client.post("/api/v1/auth/register", json=payload)
         assert resp.status_code == 201
-        # Cleanup
-        await db.execute("DELETE FROM core.tenants WHERE slug = 'pure-restaurant-nepal'")
+        await _cleanup_tenant(db, slug="pure-restaurant-nepal")
 
     async def test_register_hotel_type(self, client, db):
         """TC-REG-004: Register hotel-only business"""
@@ -60,7 +95,7 @@ class TestRegisterPositive:
         payload["admin_email"] = "purehotel@test.com"
         resp = await client.post("/api/v1/auth/register", json=payload)
         assert resp.status_code == 201
-        await db.execute("DELETE FROM core.tenants WHERE slug = 'pure-hotel-nepal'")
+        await _cleanup_tenant(db, slug="pure-hotel-nepal")
 
     async def test_schema_created_in_db(self, client, db, registered_tenant):
         """TC-REG-002: Verify 75 tables created in tenant schema"""
@@ -82,10 +117,9 @@ class TestRegisterPositive:
         resp = await client.post("/api/v1/auth/register", json=payload)
         assert resp.status_code == 201
         data = resp.json()
-        # Schema name should only have safe characters
         assert " " not in data["schema_name"]
         assert "&" not in data["schema_name"]
-        await db.execute("DELETE FROM core.tenants WHERE slug = 'hotel-spa-kathmandu-2024'")
+        await _cleanup_tenant(db, slug="hotel-spa-kathmandu-2024")
 
 
 class TestRegisterNegative:
@@ -141,9 +175,8 @@ class TestRegisterSecurity:
         payload["business_name"] = "'; DROP TABLE core.tenants; --"
         payload["admin_email"] = "sqltest@test.com"
         resp = await client.post("/api/v1/auth/register", json=payload)
-        # Either succeeds with safe slug or rejects — either way DB is intact
         count = await db.fetchval("SELECT COUNT(*) FROM core.tenants")
-        assert count >= 1  # Table still exists
+        assert count >= 1
 
     async def test_xss_in_name_stored_as_plain_text(self, client, db):
         """TC-REG-012: XSS payload stored as plain text"""
@@ -152,12 +185,12 @@ class TestRegisterSecurity:
         payload["admin_email"] = "xsstest@test.com"
         resp = await client.post("/api/v1/auth/register", json=payload)
         if resp.status_code == 201:
-            slug = resp.json()["schema_name"]
+            schema = resp.json()["schema_name"]
             row = await db.fetchrow(
-                "SELECT name FROM core.tenants WHERE schema_name = $1", slug
+                "SELECT name FROM core.tenants WHERE schema_name = $1", schema
             )
-            assert "<script>" in row["name"]  # stored as plain text, not executed
-            await db.execute("DELETE FROM core.tenants WHERE schema_name = $1", slug)
+            assert "<script>" in row["name"]
+            await _cleanup_tenant(db, schema=schema)
 
     async def test_very_long_business_name(self, client):
         """TC-REG-013: Very long string rejected gracefully"""

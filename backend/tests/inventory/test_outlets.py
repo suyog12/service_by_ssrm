@@ -125,7 +125,10 @@ class TestOutletPositive:
         )
         assert resp.status_code == 200
 
-    async def test_create_outlet_with_all_types(self, client, admin_token):
+    async def test_create_outlet_with_all_types(self, client, admin_token, db):
+        await db.execute(
+            "UPDATE core.tenants SET max_outlets = 999 WHERE slug = 'test-hotel-nepal'"
+        )
         for outlet_type in ("restaurant", "bar", "cafe", "banquet", "other"):
             resp = await client.post(
                 "/api/v1/outlets",
@@ -188,19 +191,17 @@ class TestOutletNegative:
         assert resp.status_code == 403
 
     async def test_ez_plan_outlet_limit(self, client, admin_token, db):
-        # Explicitly set to EZ for this test
         await db.execute(
-            "UPDATE core.tenants SET subscription_tier = 'ez' "
+            "UPDATE core.tenants SET subscription_tier = 'ez', max_outlets = 1 "
             "WHERE slug = 'test-hotel-nepal'"
         )
-        # Default outlet already occupies the 1 slot on EZ plan
         resp = await client.post(
             "/api/v1/outlets",
             json={"name": "EZ Outlet Two", "type": "bar"},
             headers=auth(admin_token),
         )
-        assert resp.status_code == 400
-        assert "plan" in resp.json()["detail"].lower()
+        assert resp.status_code == 403
+        assert "outlet" in resp.json()["detail"].lower()
 
 
 @pytest.fixture
@@ -217,11 +218,11 @@ async def outlet(client, admin_token):
 @pytest.fixture(autouse=True)
 async def set_pro_plan(db):
     await db.execute(
-        "UPDATE core.tenants SET subscription_tier = 'max' "
+        "UPDATE core.tenants SET subscription_tier = 'max', max_outlets = 999 "
         "WHERE slug = 'test-hotel-nepal'"
     )
     yield
     await db.execute(
-        "UPDATE core.tenants SET subscription_tier = 'ez' "
+        "UPDATE core.tenants SET subscription_tier = 'ez', max_outlets = 1 "
         "WHERE slug = 'test-hotel-nepal'"
     )

@@ -9,7 +9,7 @@ TENANT_SCHEMA = "tenant_test_hotel_nepal"
 TENANT_SCHEMA_B = "tenant_second_restaurant_nepal"
 
 
-# Reset pool on every test 
+# Reset pool on every test
 
 @pytest.fixture(autouse=True)
 async def reset_pool():
@@ -18,7 +18,7 @@ async def reset_pool():
     await db_module.close_pool()
 
 
-# Clean tables after every test 
+# Clean tables after every test
 
 @pytest.fixture(autouse=True)
 async def clean_inventory():
@@ -33,6 +33,12 @@ async def clean_inventory():
     )
     try:
         for schema in [TENANT_SCHEMA, TENANT_SCHEMA_B]:
+            # Subscription events (must be first — FK references core.tenants)
+            try:
+                await conn.execute(f'DELETE FROM "{schema}".subscription_events')
+            except Exception:
+                pass
+
             # Bills and payments
             for table in [
                 "payments",
@@ -115,7 +121,7 @@ async def clean_inventory():
                     await conn.execute(f'DELETE FROM "{schema}".{table}')
                 except Exception:
                     pass
-                
+
             # HR
             for table in [
                 "shift_handovers",
@@ -131,7 +137,7 @@ async def clean_inventory():
                     await conn.execute(f'DELETE FROM "{schema}".{table}')
                 except Exception:
                     pass
-                
+
             # Comms
             for table in [
                 "message_read_receipts",
@@ -147,7 +153,7 @@ async def clean_inventory():
                     await conn.execute(f'DELETE FROM "{schema}".{table}')
                 except Exception:
                     pass
-                
+
             # Expenses
             for table in ["cash_register", "expense_logs", "expense_categories"]:
                 try:
@@ -202,11 +208,58 @@ async def clean_inventory():
             except Exception:
                 pass
 
+        # Subscription — reset after every test (core tables, outside schema loop)
+        try:
+            await conn.execute("DELETE FROM core.payment_receipts")
+        except Exception:
+            pass
+
+        try:
+            await conn.execute(
+                "DELETE FROM core.subscription_events WHERE event_type != 'trial_started'"
+            )
+        except Exception:
+            pass
+
+        try:
+            await conn.execute(
+                """
+                UPDATE core.tenants SET
+                    subscription_status  = 'active',
+                    subscription_tier    = 'max',
+                    trial_ends_at        = NULL,
+                    grace_period_ends_at = NULL,
+                    demo_ends_at         = NULL,
+                    suspended_at         = NULL,
+                    cancelled_at         = NULL,
+                    is_demo              = FALSE,
+                    max_outlets          = 999,
+                    max_staff            = 999,
+                    max_menu_items       = 9999
+                WHERE schema_name IN ($1, $2)
+                """,
+                TENANT_SCHEMA, TENANT_SCHEMA_B
+            )
+        except Exception:
+            pass
+
+        # Reset any DB-driven plan feature overrides added by tests
+        try:
+            await conn.execute(
+                """
+                DELETE FROM core.plan_features
+                WHERE (plan_code = 'max' AND feature_code IN ('inventory.view', 'expenses.log'))
+                   OR (plan_code = 'pro' AND feature_code = 'menu.offers')
+                """
+            )
+        except Exception:
+            pass
+
     finally:
         await conn.close()
 
 
-# HTTP client per test 
+# HTTP client per test
 
 @pytest.fixture
 async def client():
@@ -217,7 +270,7 @@ async def client():
         yield c
 
 
-# One-time DB cleanup before session 
+# One-time DB cleanup before session
 
 @pytest.fixture(autouse=True, scope="session")
 def clean_db_once():
@@ -241,9 +294,11 @@ def clean_db_once():
                 await conn.execute(
                     f'DROP SCHEMA IF EXISTS "{row["schema_name"]}" CASCADE'
                 )
-            await conn.execute("DELETE FROM core.refresh_tokens")
-            await conn.execute("DELETE FROM core.users")
-            await conn.execute("DELETE FROM core.tenants")
+            await conn.execute(
+                "TRUNCATE core.payment_receipts, core.subscription_events, "
+                "core.refresh_tokens, core.reset_tokens, core.users, "
+                "core.tenants RESTART IDENTITY CASCADE"
+            )
         finally:
             await conn.close()
 
@@ -251,7 +306,7 @@ def clean_db_once():
     yield
 
 
-# Shared test data 
+# Shared test data
 
 TEST_BUSINESS = {
     "business_name": "Test Hotel Nepal",
@@ -282,7 +337,7 @@ def auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-# Fixtures 
+# Fixtures
 
 @pytest.fixture
 async def registered_tenant(client, db):
@@ -314,7 +369,15 @@ async def registered_tenant(client, db):
         result = resp.json()
 
     await db.execute(
-        "UPDATE core.tenants SET subscription_tier = 'max' WHERE slug = $1",
+        """
+        UPDATE core.tenants SET
+            subscription_tier    = 'max',
+            subscription_status  = 'active',
+            max_outlets          = 999,
+            max_staff            = 999,
+            max_menu_items       = 9999
+        WHERE slug = $1
+        """,
         "test-hotel-nepal"
     )
     return result
@@ -347,7 +410,15 @@ async def registered_tenant_b(client, db):
         }
     assert resp.status_code == 201, resp.text
     await db.execute(
-        "UPDATE core.tenants SET subscription_tier = 'max' WHERE slug = $1",
+        """
+        UPDATE core.tenants SET
+            subscription_tier    = 'max',
+            subscription_status  = 'active',
+            max_outlets          = 999,
+            max_staff            = 999,
+            max_menu_items       = 9999
+        WHERE slug = $1
+        """,
         "second-restaurant-nepal"
     )
     return resp.json()

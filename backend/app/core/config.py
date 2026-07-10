@@ -28,6 +28,16 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     EMAILS_FROM_EMAIL: str = ""
 
+    # Encryption
+    ENCRYPTION_SECRET: str = ""
+
+    # Cloudflare R2
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET_NAME: str = ""
+    R2_PUBLIC_URL: str = ""
+
     @property
     def DATABASE_URL(self) -> str:
         return (

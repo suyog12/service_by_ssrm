@@ -25,6 +25,7 @@ from app.api.v1.endpoints.expenses import router as expenses_router
 from app.api.v1.endpoints.hr import router as hr_router
 from app.api.v1.endpoints.comms import router as comms_router
 from app.core.scheduler import start_scheduler, stop_scheduler
+from app.api.v1.endpoints.subscription import router as subscription_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -72,6 +73,7 @@ app.include_router(loyalty_router, prefix="/api/v1")
 app.include_router(expenses_router, prefix="/api/v1")
 app.include_router(hr_router, prefix="/api/v1")
 app.include_router(comms_router, prefix="/api/v1")
+app.include_router(subscription_router, prefix="/api/v1")
 
 @app.get("/")
 async def root():

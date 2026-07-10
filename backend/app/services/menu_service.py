@@ -142,6 +142,10 @@ async def delete_category(
 async def create_item(
     db, schema: str, outlet_id: UUID, data: dict
 ) -> dict:
+    # Check menu item limit before creating
+    from app.services.subscription_service import check_menu_item_limit
+    await check_menu_item_limit(db, schema, outlet_id)
+
     category = await db.fetchrow(
         f"""
         SELECT id, name FROM "{schema}".menu_categories

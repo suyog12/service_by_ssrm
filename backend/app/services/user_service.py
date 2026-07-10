@@ -29,11 +29,15 @@ async def create_user(
     if existing:
         raise ValueError("A user with this email already exists")
 
-    # 2. Generate temporary password
+    # 2. Check staff limit
+    from app.services.subscription_service import check_staff_limit
+    await check_staff_limit(db, schema_name)
+
+    # 3. Generate temporary password
     temp_password = generate_temp_password()
     password_hash = hash_password(temp_password)
 
-    # 3. Create in core.users — must_change_password = TRUE
+    # 4. Create in core.users — must_change_password = TRUE
     user = await db.fetchrow(
         """
         INSERT INTO core.users
@@ -46,7 +50,7 @@ async def create_user(
     )
     user_id = user["id"]
 
-    # 4. Create profile in tenant schema
+    # 5. Create profile in tenant schema
     await db.execute(
         f"""
         INSERT INTO "{schema_name}".user_profiles
@@ -56,7 +60,7 @@ async def create_user(
         user_id, data.full_name, data.role_template_id, created_by
     )
 
-    # 5. Send welcome email with temp password
+    # 6. Send welcome email with temp password
     send_welcome_email(
         to_email=data.email,
         full_name=data.full_name,
@@ -134,7 +138,6 @@ async def set_permission_override(
     granted_by: UUID,
     db: asyncpg.Connection
 ) -> PermissionOverrideResponse:
-    # Validate feature_code exists
     valid = await db.fetchrow(
         "SELECT id FROM core.features WHERE code = $1",
         data.feature_code

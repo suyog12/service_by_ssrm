@@ -133,15 +133,26 @@ async def _get_user_permissions(user_id: UUID, schema: str, db: asyncpg.Connecti
     return permissions
 
 
-async def _check_tier(feature_code: str, schema: str, db: asyncpg.Connection):
+async def _check_subscription_and_tier(
+    feature_code: str, schema: str, db: asyncpg.Connection
+):
+    from app.services.subscription_service import (
+        check_subscription_access,
+        get_plan_restrictions
+    )
     tenant = await db.fetchrow(
         "SELECT subscription_tier FROM core.tenants WHERE schema_name = $1",
         schema
     )
     if not tenant:
         return
+
+    # Check subscription status first
+    await check_subscription_access(schema, db)
+
+    # Check plan feature restrictions from DB
     tier = tenant["subscription_tier"]
-    restricted = TIER_RESTRICTIONS.get(tier, set())
+    restricted = await get_plan_restrictions(db, tier)
     if feature_code in restricted:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -198,7 +209,7 @@ def require_feature(feature_code: str, level: str = "view"):
         schema = payload["schema_name"]
 
         # Tier check — applies to everyone including admins
-        await _check_tier(feature_code, schema, db)
+        await _check_subscription_and_tier(feature_code, schema, db)
 
         ctx = await _build_user_context(payload, db, request)
         # Update last_seen_at — non-blocking best effort

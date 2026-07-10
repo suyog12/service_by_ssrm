@@ -28,9 +28,10 @@ async def _get_tenant_schemas():
         await conn.close()
 
 
-async def _fire_notification(conn, schema: str, user_id, event_code: str,
-                              title: str, body: str, ref_type: str = None,
-                              ref_id=None):
+async def _fire_notification(
+    conn, schema: str, user_id, event_code: str,
+    title: str, body: str, ref_type: str = None, ref_id=None
+):
     await conn.execute(
         f"""
         INSERT INTO "{schema}".notifications
@@ -40,6 +41,8 @@ async def _fire_notification(conn, schema: str, user_id, event_code: str,
         user_id, event_code, title, body, ref_type, ref_id
     )
 
+
+# Existing jobs 
 
 async def check_upcoming_reservations():
     if os.getenv("TESTING"):
@@ -71,7 +74,7 @@ async def check_upcoming_reservations():
                         conn, schema, admin["id"],
                         "reservation.upcoming",
                         "Reservation Today",
-                        f"A reservation is due today.",
+                        "A reservation is due today.",
                         "hotel_reservation", res["id"]
                     )
         finally:
@@ -149,12 +152,79 @@ async def check_housekeeping_overdue():
             await conn.close()
 
 
+# Subscription jobs 
+
+async def run_trial_expiry():
+    if os.getenv("TESTING"):
+        return
+    from app.services.subscription_service import job_trial_expiry
+    conn = await _get_conn()
+    try:
+        await job_trial_expiry(conn)
+    finally:
+        await conn.close()
+
+
+async def run_grace_and_suspension():
+    if os.getenv("TESTING"):
+        return
+    from app.services.subscription_service import job_grace_and_suspension
+    conn = await _get_conn()
+    try:
+        await job_grace_and_suspension(conn)
+    finally:
+        await conn.close()
+
+
+async def run_demo_expiry():
+    if os.getenv("TESTING"):
+        return
+    from app.services.subscription_service import job_demo_expiry
+    conn = await _get_conn()
+    try:
+        await job_demo_expiry(conn)
+    finally:
+        await conn.close()
+
+
+# Scheduler start/stop 
+
 def start_scheduler():
     if os.getenv("TESTING"):
         return
-    scheduler.add_job(check_upcoming_reservations, "interval", minutes=5)
-    scheduler.add_job(check_cash_register_not_opened, "interval", hours=1)
-    scheduler.add_job(check_housekeeping_overdue, "interval", minutes=30)
+
+    # Existing operational jobs
+    scheduler.add_job(check_upcoming_reservations,   "interval", minutes=5)
+    scheduler.add_job(check_cash_register_not_opened,"interval", hours=1)
+    scheduler.add_job(check_housekeeping_overdue,    "interval", minutes=30)
+
+    # Subscription jobs — run daily at Nepal time
+    # Nepal is UTC+5:45, so:
+    # 01:00 Nepal = 19:15 UTC previous day
+    # 01:30 Nepal = 19:45 UTC previous day
+    # 02:00 Nepal = 20:15 UTC previous day
+    scheduler.add_job(
+        run_trial_expiry,
+        trigger="cron",
+        hour=19, minute=15,
+        id="trial_expiry",
+        replace_existing=True
+    )
+    scheduler.add_job(
+        run_grace_and_suspension,
+        trigger="cron",
+        hour=19, minute=45,
+        id="grace_suspension",
+        replace_existing=True
+    )
+    scheduler.add_job(
+        run_demo_expiry,
+        trigger="cron",
+        hour=20, minute=15,
+        id="demo_expiry",
+        replace_existing=True
+    )
+
     scheduler.start()
 
 

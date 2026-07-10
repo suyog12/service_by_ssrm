@@ -1,31 +1,10 @@
 from uuid import UUID
 from fastapi import HTTPException
-from app.schemas.outlet import OUTLET_LIMITS
-
-
-async def _get_tenant_tier(db, schema: str) -> str:
-    tenant = await db.fetchrow(
-        'SELECT subscription_tier FROM core.tenants WHERE schema_name = $1',
-        schema
-    )
-    return tenant["subscription_tier"] if tenant else "ez"
 
 
 async def _check_outlet_limit(db, schema: str):
-    tier = await _get_tenant_tier(db, schema)
-    limit = OUTLET_LIMITS.get(tier)
-    if limit is None:
-        return  # unlimited
-
-    count = await db.fetchval(
-        f'SELECT COUNT(*) FROM "{schema}".outlets WHERE is_active = TRUE'
-    )
-    if count >= limit:
-        raise HTTPException(
-            400,
-            f"Your {tier.upper()} plan allows a maximum of {limit} outlet(s). "
-            f"Upgrade your plan to add more outlets."
-        )
+    from app.services.subscription_service import check_outlet_limit
+    await check_outlet_limit(db, schema)
 
 
 async def create_outlet(db, schema: str, data: dict) -> dict:
@@ -97,19 +76,12 @@ async def create_outlet(db, schema: str, data: dict) -> dict:
     if data.get("menu_source_id"):
         await _copy_menu(db, schema, data["menu_source_id"], outlet["id"])
 
-    # If inventory_source_id provided and not sharing, copy ingredients
-    if data.get("inventory_source_id"):
-        # source_outlet_id set means sharing — no copy needed
-        # if they want a copy we do a full copy with source_outlet_id = NULL
-        pass  # sharing handled via source_outlet_id on ingredients table
-
     return outlet
 
 
 async def _copy_menu(
     db, schema: str, source_outlet_id: UUID, target_outlet_id: UUID
 ):
-    # Copy categories
     categories = await db.fetch(
         f"""
         SELECT * FROM "{schema}".menu_categories
@@ -137,7 +109,6 @@ async def _copy_menu(
         if not new_cat:
             continue
 
-        # Copy items in this category
         items = await db.fetch(
             f"""
             SELECT * FROM "{schema}".menu_items
@@ -250,7 +221,6 @@ async def get_default_outlet_id(db, schema: str) -> UUID:
         """
     )
     if not row:
-        # Fall back to first outlet
         row = await db.fetchrow(
             f"""
             SELECT id FROM "{schema}".outlets
